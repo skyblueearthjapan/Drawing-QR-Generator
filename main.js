@@ -11,8 +11,7 @@ const config = {
         height: 80      // 高さ
     },
 
-    // QRコードを配置する□枠の領域
-    // 30mm × 30mm の枠を想定
+    // QRコードを配置する□枠の領域（デフォルト値）
     qrFrame: {
         x: 1700,        // 左上のX座標
         y: 150,         // 左上のY座標
@@ -43,6 +42,22 @@ let selectedFiles = [];
 let processedResults = [];
 let errorFiles = [];
 let tesseractWorker = null;
+let currentFileIndex = 0;
+let currentImage = null;
+let currentQRCanvas = null;
+let currentDrawingNumber = '';
+
+// QRコードの位置（ユーザーが調整可能）
+let qrPosition = {
+    x: config.qrFrame.x,
+    y: config.qrFrame.y,
+    size: Math.round(config.qrFrame.width * config.qrSizeRatio)
+};
+
+// ドラッグ関連
+let isDragging = false;
+let dragOffset = { x: 0, y: 0 };
+let canvasScale = 1;
 
 // ========================================
 // DOM要素の取得
@@ -64,21 +79,52 @@ const errorList = document.getElementById('error-list');
 const logContainer = document.getElementById('log-container');
 const hiddenCanvas = document.getElementById('hidden-canvas');
 
+// プレビューモーダル関連
+const previewModal = document.getElementById('preview-modal');
+const modalFileInfo = document.getElementById('modal-file-info');
+const previewCanvas = document.getElementById('preview-canvas');
+const qrOverlay = document.getElementById('qr-overlay');
+const drawingNumberInput = document.getElementById('drawing-number-input');
+const ocrStatus = document.getElementById('ocr-status');
+const qrXSlider = document.getElementById('qr-x-slider');
+const qrYSlider = document.getElementById('qr-y-slider');
+const qrSizeSlider = document.getElementById('qr-size-slider');
+const qrXValue = document.getElementById('qr-x-value');
+const qrYValue = document.getElementById('qr-y-value');
+const qrSizeValue = document.getElementById('qr-size-value');
+const resetPositionBtn = document.getElementById('reset-position-btn');
+const updatePreviewBtn = document.getElementById('update-preview-btn');
+const skipBtn = document.getElementById('skip-btn');
+const approveBtn = document.getElementById('approve-btn');
+
 // ========================================
 // イベントリスナー設定
 // ========================================
 
-// フォルダ選択時
+// ファイル選択
 folderInput.addEventListener('change', handleFileSelect);
-
-// 複数ファイル選択時
 fileInput.addEventListener('change', handleFileSelect);
 
-// 処理開始ボタンクリック時
+// 処理開始
 processBtn.addEventListener('click', startProcessing);
 
-// ダウンロードボタンクリック時
+// ダウンロード
 downloadBtn.addEventListener('click', downloadZip);
+
+// モーダル内のコントロール
+drawingNumberInput.addEventListener('input', handleDrawingNumberChange);
+qrXSlider.addEventListener('input', handleSliderChange);
+qrYSlider.addEventListener('input', handleSliderChange);
+qrSizeSlider.addEventListener('input', handleSliderChange);
+resetPositionBtn.addEventListener('click', resetQRPosition);
+updatePreviewBtn.addEventListener('click', updatePreview);
+skipBtn.addEventListener('click', skipCurrentFile);
+approveBtn.addEventListener('click', approveCurrentFile);
+
+// QRオーバーレイのドラッグ
+qrOverlay.addEventListener('mousedown', startDrag);
+document.addEventListener('mousemove', drag);
+document.addEventListener('mouseup', endDrag);
 
 // ========================================
 // ファイル選択処理
@@ -129,6 +175,7 @@ async function startProcessing() {
     // 初期化
     processedResults = [];
     errorFiles = [];
+    currentFileIndex = 0;
 
     // UIの表示切り替え
     progressSection.style.display = 'block';
@@ -145,45 +192,357 @@ async function startProcessing() {
         await tesseractWorker.setParameters(config.ocrConfig);
         addLog('success', 'OCRエンジンの初期化が完了しました');
 
-        // 各ファイルを処理
-        for (let i = 0; i < selectedFiles.length; i++) {
-            const file = selectedFiles[i];
-            const progress = ((i + 1) / selectedFiles.length) * 100;
-
-            // 進捗表示を更新
-            updateProgress(progress, i + 1, selectedFiles.length, file.name);
-
-            addLog('info', `処理中: ${file.name}`);
-
-            try {
-                // ファイルを処理
-                const result = await processDrawingFile(file);
-                processedResults.push(result);
-                addLog('success', `✅ 成功: ${file.name} → ${result.newFileName}`);
-            } catch (error) {
-                errorFiles.push({
-                    originalName: file.name,
-                    error: error.message
-                });
-                addLog('error', `❌ エラー: ${file.name} - ${error.message}`);
-            }
-        }
-
-        // Tesseract Worker の終了
-        await tesseractWorker.terminate();
-        addLog('info', 'OCRエンジンを終了しました');
-
-        // 結果を表示
-        showResults();
+        // 最初のファイルを処理
+        await processNextFile();
 
     } catch (error) {
         addLog('error', `処理中にエラーが発生しました: ${error.message}`);
         alert('処理中にエラーが発生しました。詳細はログを確認してください。');
-    } finally {
-        // ボタンを元に戻す
         processBtn.disabled = false;
         processBtn.textContent = '🚀 処理を開始';
     }
+}
+
+// ========================================
+// 次のファイルを処理
+// ========================================
+async function processNextFile() {
+    if (currentFileIndex >= selectedFiles.length) {
+        // すべてのファイルの処理が完了
+        await finishProcessing();
+        return;
+    }
+
+    const file = selectedFiles[currentFileIndex];
+    const progress = ((currentFileIndex + 1) / selectedFiles.length) * 100;
+
+    // 進捗表示を更新
+    updateProgress(progress, currentFileIndex + 1, selectedFiles.length, file.name);
+
+    addLog('info', `処理中: ${file.name}`);
+
+    try {
+        // 1. 画像を読み込む
+        currentImage = await loadImage(file);
+
+        // 2. 図番をOCRで読み取る
+        currentDrawingNumber = await extractDrawingNumber(currentImage);
+
+        // 3. プレビューモーダルを表示
+        await showPreviewModal(file, currentImage, currentDrawingNumber);
+
+    } catch (error) {
+        addLog('error', `エラー: ${file.name} - ${error.message}`);
+        errorFiles.push({
+            originalName: file.name,
+            error: error.message
+        });
+
+        // 次のファイルへ
+        currentFileIndex++;
+        await processNextFile();
+    }
+}
+
+// ========================================
+// プレビューモーダルを表示
+// ========================================
+async function showPreviewModal(file, image, drawingNumber) {
+    // モーダル情報を設定
+    modalFileInfo.textContent = `ファイル ${currentFileIndex + 1}/${selectedFiles.length}: ${file.name}`;
+
+    // 図番入力フィールドを設定
+    drawingNumberInput.value = drawingNumber || '';
+
+    // OCRステータスを表示
+    if (drawingNumber) {
+        ocrStatus.textContent = `✅ OCRで図番を検出しました: ${drawingNumber}`;
+        ocrStatus.className = 'ocr-status success';
+    } else {
+        ocrStatus.textContent = `⚠️ 図番を検出できませんでした。手動で入力してください。`;
+        ocrStatus.className = 'ocr-status error';
+    }
+
+    // QR位置をリセット
+    resetQRPosition();
+
+    // プレビューを更新
+    await updatePreview();
+
+    // モーダルを表示
+    previewModal.style.display = 'flex';
+}
+
+// ========================================
+// プレビューを更新
+// ========================================
+async function updatePreview() {
+    if (!currentImage) return;
+
+    const ctx = previewCanvas.getContext('2d');
+
+    // キャンバスサイズを画像に合わせる
+    previewCanvas.width = currentImage.width;
+    previewCanvas.height = currentImage.height;
+
+    // 画像を描画
+    ctx.drawImage(currentImage, 0, 0);
+
+    // 図番が入力されている場合、QRコードを生成して描画
+    const drawingNum = drawingNumberInput.value.trim();
+    if (drawingNum) {
+        try {
+            // QRコードを生成
+            currentQRCanvas = document.createElement('canvas');
+            await QRCode.toCanvas(currentQRCanvas, drawingNum, {
+                width: qrPosition.size,
+                margin: 0,
+                errorCorrectionLevel: 'M'
+            });
+
+            // 背景を白で塗りつぶし
+            ctx.fillStyle = 'white';
+            ctx.fillRect(qrPosition.x, qrPosition.y, qrPosition.size, qrPosition.size);
+
+            // QRコードを描画
+            ctx.drawImage(currentQRCanvas, qrPosition.x, qrPosition.y);
+
+            addLog('info', 'プレビューを更新しました');
+        } catch (error) {
+            addLog('error', `QRコード生成エラー: ${error.message}`);
+        }
+    }
+
+    // QRオーバーレイを更新
+    updateQROverlay();
+}
+
+// ========================================
+// QRオーバーレイの位置とサイズを更新
+// ========================================
+function updateQROverlay() {
+    // キャンバスの表示サイズを取得
+    const rect = previewCanvas.getBoundingClientRect();
+    canvasScale = rect.width / previewCanvas.width;
+
+    // オーバーレイの位置とサイズを計算
+    const overlayX = qrPosition.x * canvasScale;
+    const overlayY = qrPosition.y * canvasScale;
+    const overlaySize = qrPosition.size * canvasScale;
+
+    qrOverlay.style.left = `${overlayX}px`;
+    qrOverlay.style.top = `${overlayY}px`;
+    qrOverlay.style.width = `${overlaySize}px`;
+    qrOverlay.style.height = `${overlaySize}px`;
+}
+
+// ========================================
+// 図番入力の変更ハンドラ
+// ========================================
+function handleDrawingNumberChange() {
+    const value = drawingNumberInput.value.trim();
+
+    if (value) {
+        if (config.drawingNumberPattern.test(value)) {
+            ocrStatus.textContent = `✅ 有効な図番形式です: ${value}`;
+            ocrStatus.className = 'ocr-status success';
+        } else {
+            ocrStatus.textContent = `⚠️ 図番の形式が標準と異なります（処理は可能です）`;
+            ocrStatus.className = 'ocr-status';
+        }
+    } else {
+        ocrStatus.textContent = `❌ 図番を入力してください`;
+        ocrStatus.className = 'ocr-status error';
+    }
+}
+
+// ========================================
+// スライダー変更ハンドラ
+// ========================================
+function handleSliderChange(event) {
+    const slider = event.target;
+    const value = parseInt(slider.value);
+
+    if (slider.id === 'qr-x-slider') {
+        qrPosition.x = value;
+        qrXValue.textContent = value;
+    } else if (slider.id === 'qr-y-slider') {
+        qrPosition.y = value;
+        qrYValue.textContent = value;
+    } else if (slider.id === 'qr-size-slider') {
+        qrPosition.size = value;
+        qrSizeValue.textContent = value;
+    }
+
+    updateQROverlay();
+}
+
+// ========================================
+// QR位置をリセット
+// ========================================
+function resetQRPosition() {
+    qrPosition.x = config.qrFrame.x;
+    qrPosition.y = config.qrFrame.y;
+    qrPosition.size = Math.round(config.qrFrame.width * config.qrSizeRatio);
+
+    qrXSlider.value = qrPosition.x;
+    qrYSlider.value = qrPosition.y;
+    qrSizeSlider.value = qrPosition.size;
+
+    qrXValue.textContent = qrPosition.x;
+    qrYValue.textContent = qrPosition.y;
+    qrSizeValue.textContent = qrPosition.size;
+
+    updateQROverlay();
+    addLog('info', 'QRコード位置をリセットしました');
+}
+
+// ========================================
+// ドラッグ開始
+// ========================================
+function startDrag(event) {
+    isDragging = true;
+
+    const rect = previewCanvas.getBoundingClientRect();
+    const overlayRect = qrOverlay.getBoundingClientRect();
+
+    dragOffset.x = event.clientX - overlayRect.left;
+    dragOffset.y = event.clientY - overlayRect.top;
+
+    event.preventDefault();
+}
+
+// ========================================
+// ドラッグ中
+// ========================================
+function drag(event) {
+    if (!isDragging) return;
+
+    const rect = previewCanvas.getBoundingClientRect();
+
+    // 新しい位置を計算（キャンバス上の座標に変換）
+    const newX = (event.clientX - rect.left - dragOffset.x) / canvasScale;
+    const newY = (event.clientY - rect.top - dragOffset.y) / canvasScale;
+
+    // 範囲チェック
+    qrPosition.x = Math.max(0, Math.min(newX, previewCanvas.width - qrPosition.size));
+    qrPosition.y = Math.max(0, Math.min(newY, previewCanvas.height - qrPosition.size));
+
+    // スライダーの値を更新
+    qrXSlider.value = Math.round(qrPosition.x);
+    qrYSlider.value = Math.round(qrPosition.y);
+    qrXValue.textContent = Math.round(qrPosition.x);
+    qrYValue.textContent = Math.round(qrPosition.y);
+
+    updateQROverlay();
+
+    event.preventDefault();
+}
+
+// ========================================
+// ドラッグ終了
+// ========================================
+function endDrag(event) {
+    if (isDragging) {
+        isDragging = false;
+        addLog('info', `QRコード位置を変更: (${Math.round(qrPosition.x)}, ${Math.round(qrPosition.y)})`);
+    }
+}
+
+// ========================================
+// スキップボタン
+// ========================================
+async function skipCurrentFile() {
+    const file = selectedFiles[currentFileIndex];
+    addLog('info', `スキップ: ${file.name}`);
+
+    errorFiles.push({
+        originalName: file.name,
+        error: 'ユーザーによってスキップされました'
+    });
+
+    // モーダルを閉じる
+    previewModal.style.display = 'none';
+
+    // 次のファイルへ
+    currentFileIndex++;
+    await processNextFile();
+}
+
+// ========================================
+// OKボタン（処理を確定）
+// ========================================
+async function approveCurrentFile() {
+    const file = selectedFiles[currentFileIndex];
+    const drawingNum = drawingNumberInput.value.trim();
+
+    // 図番チェック
+    if (!drawingNum) {
+        alert('図番を入力してください。');
+        return;
+    }
+
+    addLog('info', `確定: ${file.name} → ${drawingNum}.png`);
+
+    try {
+        // 最終的な画像を生成
+        const ctx = hiddenCanvas.getContext('2d');
+        hiddenCanvas.width = currentImage.width;
+        hiddenCanvas.height = currentImage.height;
+        ctx.drawImage(currentImage, 0, 0);
+
+        // QRコードを描画
+        if (currentQRCanvas) {
+            ctx.fillStyle = 'white';
+            ctx.fillRect(qrPosition.x, qrPosition.y, qrPosition.size, qrPosition.size);
+            ctx.drawImage(currentQRCanvas, qrPosition.x, qrPosition.y);
+        }
+
+        // Blobに変換
+        const blob = await canvasToBlob(hiddenCanvas);
+
+        // 結果を保存
+        processedResults.push({
+            originalName: file.name,
+            newFileName: `${drawingNum}.png`,
+            drawingNumber: drawingNum,
+            blob: blob
+        });
+
+        addLog('success', `✅ 処理完了: ${drawingNum}.png`);
+
+    } catch (error) {
+        addLog('error', `処理エラー: ${error.message}`);
+        errorFiles.push({
+            originalName: file.name,
+            error: error.message
+        });
+    }
+
+    // モーダルを閉じる
+    previewModal.style.display = 'none';
+
+    // 次のファイルへ
+    currentFileIndex++;
+    await processNextFile();
+}
+
+// ========================================
+// 処理完了
+// ========================================
+async function finishProcessing() {
+    // Tesseract Worker の終了
+    if (tesseractWorker) {
+        await tesseractWorker.terminate();
+        addLog('info', 'OCRエンジンを終了しました');
+    }
+
+    // 結果を表示
+    showResults();
+
+    // ボタンを元に戻す
+    processBtn.disabled = false;
+    processBtn.textContent = '🚀 処理を開始';
 }
 
 // ========================================
@@ -191,45 +550,8 @@ async function startProcessing() {
 // ========================================
 function updateProgress(percentage, current, total, fileName) {
     progressBar.style.width = `${percentage}%`;
-    progressText.textContent = `${current} / ${total} 枚処理完了 (${Math.round(percentage)}%)`;
-    currentFileText.textContent = `現在処理中: ${fileName}`;
-}
-
-// ========================================
-// 図面ファイルの処理
-// ========================================
-async function processDrawingFile(file) {
-    // 1. 画像を読み込む
-    const image = await loadImage(file);
-
-    // 2. キャンバスに描画
-    const ctx = hiddenCanvas.getContext('2d');
-    hiddenCanvas.width = image.width;
-    hiddenCanvas.height = image.height;
-    ctx.drawImage(image, 0, 0);
-
-    // 3. 図番をOCRで読み取る
-    const drawingNumber = await extractDrawingNumber(ctx);
-
-    if (!drawingNumber) {
-        throw new Error('図番を読み取れませんでした');
-    }
-
-    // 4. QRコードを生成して合成
-    await drawQRCode(ctx, drawingNumber);
-
-    // 5. 結果の画像をBlobに変換
-    const blob = await canvasToBlob(hiddenCanvas);
-
-    // 6. 新しいファイル名を作成
-    const newFileName = `${drawingNumber}.png`;
-
-    return {
-        originalName: file.name,
-        newFileName: newFileName,
-        drawingNumber: drawingNumber,
-        blob: blob
-    };
+    progressText.textContent = `${current} / ${total} 枚確認中 (${Math.round(percentage)}%)`;
+    currentFileText.textContent = `現在確認中: ${fileName}`;
 }
 
 // ========================================
@@ -254,7 +576,13 @@ function loadImage(file) {
 // ========================================
 // 図番をOCRで読み取る
 // ========================================
-async function extractDrawingNumber(ctx) {
+async function extractDrawingNumber(image) {
+    // キャンバスに描画
+    const ctx = hiddenCanvas.getContext('2d');
+    hiddenCanvas.width = image.width;
+    hiddenCanvas.height = image.height;
+    ctx.drawImage(image, 0, 0);
+
     // OCR対象領域を切り出す
     const imageData = ctx.getImageData(
         config.ocrRegion.x,
@@ -307,33 +635,6 @@ function enhanceContrast(ctx, width, height) {
 }
 
 // ========================================
-// QRコードを生成してキャンバスに描画
-// ========================================
-async function drawQRCode(ctx, drawingNumber) {
-    // QRコードのサイズを計算（枠の 2/3）
-    const qrSize = Math.round(config.qrFrame.width * config.qrSizeRatio);
-
-    // QRコードを一時キャンバスに生成
-    const qrCanvas = document.createElement('canvas');
-    await QRCode.toCanvas(qrCanvas, drawingNumber, {
-        width: qrSize,
-        margin: 0,
-        errorCorrectionLevel: 'M'
-    });
-
-    // QRコードを□枠の中央に配置
-    const qrX = config.qrFrame.x + (config.qrFrame.width - qrSize) / 2;
-    const qrY = config.qrFrame.y + (config.qrFrame.height - qrSize) / 2;
-
-    // 背景を白で塗りつぶし（QRコードの背景）
-    ctx.fillStyle = 'white';
-    ctx.fillRect(qrX, qrY, qrSize, qrSize);
-
-    // QRコードを描画
-    ctx.drawImage(qrCanvas, qrX, qrY);
-}
-
-// ========================================
 // キャンバスをBlobに変換
 // ========================================
 function canvasToBlob(canvas) {
@@ -379,7 +680,7 @@ function displayErrorFiles() {
         errorItem.className = 'error-item';
         errorItem.innerHTML = `
             <strong>📄 ${errorFile.originalName}</strong>
-            <p>エラー内容: ${errorFile.error}</p>
+            <p>理由: ${errorFile.error}</p>
         `;
         errorList.appendChild(errorItem);
     });

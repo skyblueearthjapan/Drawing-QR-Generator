@@ -106,6 +106,115 @@
         </footer>
     </div>
 
+    <!-- プレビューモーダル -->
+    <div id="preview-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🔍 図番確認とQRコード配置</h2>
+                <p class="modal-file-info" id="modal-file-info"></p>
+            </div>
+
+            <div class="modal-body">
+                <!-- 左側：プレビュー画像 -->
+                <div class="preview-container">
+                    <h3>プレビュー</h3>
+                    <div class="canvas-wrapper">
+                        <canvas id="preview-canvas" class="preview-canvas"></canvas>
+                        <div id="qr-overlay" class="qr-overlay"></div>
+                    </div>
+                    <p class="hint">💡 QRコードの赤い枠をドラッグして位置を調整できます</p>
+                </div>
+
+                <!-- 右側：設定パネル -->
+                <div class="settings-panel">
+                    <h3>設定</h3>
+
+                    <!-- OCR結果と図番入力 -->
+                    <div class="setting-group">
+                        <label for="drawing-number-input">
+                            📝 図番（編集可能）
+                        </label>
+                        <input
+                            type="text"
+                            id="drawing-number-input"
+                            class="drawing-number-input"
+                            placeholder="例: LW25000-00-000"
+                        >
+                        <p class="ocr-status" id="ocr-status"></p>
+                    </div>
+
+                    <!-- QRコード位置調整 -->
+                    <div class="setting-group">
+                        <label>🎯 QRコード位置調整</label>
+
+                        <div class="slider-group">
+                            <label for="qr-x-slider">
+                                X座標: <span id="qr-x-value">0</span>px
+                            </label>
+                            <input
+                                type="range"
+                                id="qr-x-slider"
+                                class="position-slider"
+                                min="0"
+                                max="2048"
+                                value="1700"
+                            >
+                        </div>
+
+                        <div class="slider-group">
+                            <label for="qr-y-slider">
+                                Y座標: <span id="qr-y-value">0</span>px
+                            </label>
+                            <input
+                                type="range"
+                                id="qr-y-slider"
+                                class="position-slider"
+                                min="0"
+                                max="1447"
+                                value="150"
+                            >
+                        </div>
+
+                        <div class="slider-group">
+                            <label for="qr-size-slider">
+                                QRサイズ: <span id="qr-size-value">160</span>px
+                            </label>
+                            <input
+                                type="range"
+                                id="qr-size-slider"
+                                class="position-slider"
+                                min="50"
+                                max="400"
+                                value="160"
+                            >
+                        </div>
+
+                        <button id="reset-position-btn" class="reset-btn">
+                            🔄 位置をリセット
+                        </button>
+                    </div>
+
+                    <!-- プレビュー更新ボタン -->
+                    <div class="setting-group">
+                        <button id="update-preview-btn" class="update-preview-btn">
+                            🔄 プレビューを更新
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- モーダルフッター：アクションボタン -->
+            <div class="modal-footer">
+                <button id="skip-btn" class="modal-btn skip-btn">
+                    ⏭️ スキップ
+                </button>
+                <button id="approve-btn" class="modal-btn approve-btn">
+                    ✅ この内容でOK
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- 非表示のキャンバス（画像処理用） -->
     <canvas id="hidden-canvas" style="display: none;"></canvas>
 
