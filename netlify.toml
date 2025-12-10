@@ -1,0 +1,26 @@
+# Netlify 設定ファイル
+
+[build]
+  # ビルドコマンド（静的ファイルなので不要）
+  command = ""
+  # 公開ディレクトリ（ルートディレクトリを指定）
+  publish = "."
+
+[[headers]]
+  # すべてのページに適用
+  for = "/*"
+  [headers.values]
+    # セキュリティヘッダー
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    # CORS設定（必要に応じて）
+    Cross-Origin-Embedder-Policy = "credentialless"
+    Cross-Origin-Opener-Policy = "same-origin"
+
+# リダイレクト設定（必要に応じて）
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
