@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>図面QRコード自動生成アプリ</title>
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Tesseract.js (OCR用) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+    <!-- JSZip (ZIP圧縮用) -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3/dist/jszip.min.js"></script>
+
+    <!-- QRCode.js (QRコード生成用) -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📐 図面QRコード自動生成アプリ</h1>
+            <p class="description">
+                図面PNG画像から図番をOCRで読み取り、QRコードを合成してリネームします
+            </p>
+        </header>
+
+        <main>
+            <!-- ファイル選択セクション -->
+            <section class="input-section">
+                <h2>1. 図面画像を選択</h2>
+                <div class="file-input-wrapper">
+                    <label for="folder-input" class="file-label">
+                        📁 フォルダを選択
+                    </label>
+                    <input
+                        type="file"
+                        id="folder-input"
+                        webkitdirectory
+                        directory
+                        multiple
+                        accept="image/png"
+                        class="file-input"
+                    >
+
+                    <label for="file-input" class="file-label">
+                        🖼️ 複数ファイルを選択
+                    </label>
+                    <input
+                        type="file"
+                        id="file-input"
+                        multiple
+                        accept="image/png"
+                        class="file-input"
+                    >
+                </div>
+                <p class="file-count" id="file-count">選択されたファイル: 0個</p>
+            </section>
+
+            <!-- 処理開始ボタン -->
+            <section class="action-section">
+                <button id="process-btn" class="process-btn" disabled>
+                    🚀 処理を開始
+                </button>
+            </section>
+
+            <!-- 進捗表示セクション -->
+            <section class="progress-section" id="progress-section" style="display: none;">
+                <h2>処理状況</h2>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                <p class="progress-text" id="progress-text">準備中...</p>
+                <p class="current-file" id="current-file"></p>
+            </section>
+
+            <!-- 結果表示セクション -->
+            <section class="result-section" id="result-section" style="display: none;">
+                <h2>処理結果</h2>
+                <div class="result-summary">
+                    <p>✅ 成功: <span id="success-count">0</span>件</p>
+                    <p>❌ エラー: <span id="error-count">0</span>件</p>
+                </div>
+                <button id="download-btn" class="download-btn" style="display: none;">
+                    💾 結果をダウンロード (ZIP)
+                </button>
+            </section>
+
+            <!-- エラー一覧セクション -->
+            <section class="error-section" id="error-section" style="display: none;">
+                <h2>⚠️ エラーファイル一覧</h2>
+                <p class="error-description">
+                    以下のファイルは図番を読み取れませんでした。必要に応じて手動で処理してください。
+                </p>
+                <div id="error-list" class="error-list"></div>
+            </section>
+
+            <!-- ログ表示セクション -->
+            <section class="log-section">
+                <h2>処理ログ</h2>
+                <div id="log-container" class="log-container"></div>
+            </section>
+        </main>
+
+        <footer>
+            <p>💡 ヒント: 座標設定は main.js の config オブジェクトで調整できます</p>
+        </footer>
+    </div>
+
+    <!-- 非表示のキャンバス（画像処理用） -->
+    <canvas id="hidden-canvas" style="display: none;"></canvas>
+
+    <script src="main.js"></script>
+</body>
+</html>

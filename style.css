@@ -1,0 +1,329 @@
+/* リセットとベーススタイル */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif, 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1000px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    padding: 40px;
+}
+
+/* ヘッダー */
+header {
+    text-align: center;
+    margin-bottom: 40px;
+    padding-bottom: 20px;
+    border-bottom: 3px solid #667eea;
+}
+
+header h1 {
+    color: #333;
+    font-size: 2em;
+    margin-bottom: 10px;
+}
+
+.description {
+    color: #666;
+    font-size: 1em;
+}
+
+/* セクション共通 */
+section {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border-left: 4px solid #667eea;
+}
+
+section h2 {
+    color: #333;
+    font-size: 1.3em;
+    margin-bottom: 15px;
+}
+
+/* ファイル入力セクション */
+.file-input-wrapper {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    margin-bottom: 15px;
+}
+
+.file-label {
+    display: inline-block;
+    padding: 12px 24px;
+    background: #667eea;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.3s ease;
+    font-size: 1em;
+}
+
+.file-label:hover {
+    background: #5568d3;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.file-input {
+    display: none;
+}
+
+.file-count {
+    color: #555;
+    font-weight: bold;
+    font-size: 1.1em;
+}
+
+/* 処理開始ボタン */
+.action-section {
+    text-align: center;
+}
+
+.process-btn {
+    padding: 16px 48px;
+    font-size: 1.2em;
+    font-weight: bold;
+    color: white;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.process-btn:hover:not(:disabled) {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+
+.process-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* 進捗表示 */
+.progress-bar-container {
+    width: 100%;
+    height: 30px;
+    background: #e0e0e0;
+    border-radius: 15px;
+    overflow: hidden;
+    margin-bottom: 15px;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    width: 0%;
+    transition: width 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+}
+
+.progress-text {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #333;
+    text-align: center;
+}
+
+.current-file {
+    font-size: 0.9em;
+    color: #666;
+    text-align: center;
+    margin-top: 10px;
+    word-break: break-all;
+}
+
+/* 結果表示 */
+.result-summary {
+    display: flex;
+    gap: 30px;
+    justify-content: center;
+    margin-bottom: 20px;
+    font-size: 1.1em;
+}
+
+.result-summary p {
+    font-weight: bold;
+}
+
+.result-summary span {
+    color: #667eea;
+    font-size: 1.3em;
+}
+
+.download-btn {
+    display: block;
+    margin: 20px auto;
+    padding: 14px 40px;
+    font-size: 1.1em;
+    font-weight: bold;
+    color: white;
+    background: #28a745;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.download-btn:hover {
+    background: #218838;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+}
+
+/* エラー一覧 */
+.error-description {
+    color: #666;
+    margin-bottom: 15px;
+}
+
+.error-list {
+    max-height: 300px;
+    overflow-y: auto;
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+}
+
+.error-item {
+    padding: 10px;
+    margin-bottom: 10px;
+    background: #fff3cd;
+    border-left: 4px solid #ffc107;
+    border-radius: 4px;
+}
+
+.error-item:last-child {
+    margin-bottom: 0;
+}
+
+.error-item strong {
+    color: #333;
+}
+
+.error-item p {
+    color: #666;
+    font-size: 0.9em;
+    margin-top: 5px;
+}
+
+/* ログ表示 */
+.log-container {
+    max-height: 400px;
+    overflow-y: auto;
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+.log-entry {
+    padding: 5px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-entry.success {
+    color: #28a745;
+}
+
+.log-entry.error {
+    color: #dc3545;
+}
+
+.log-entry.info {
+    color: #17a2b8;
+}
+
+.log-time {
+    color: #999;
+    font-size: 0.85em;
+    margin-right: 10px;
+}
+
+/* フッター */
+footer {
+    text-align: center;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 2px solid #e0e0e0;
+    color: #666;
+}
+
+/* スクロールバーのスタイル */
+.error-list::-webkit-scrollbar,
+.log-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.error-list::-webkit-scrollbar-track,
+.log-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.error-list::-webkit-scrollbar-thumb,
+.log-container::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+.error-list::-webkit-scrollbar-thumb:hover,
+.log-container::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+    .container {
+        padding: 20px;
+    }
+
+    header h1 {
+        font-size: 1.5em;
+    }
+
+    .file-input-wrapper {
+        flex-direction: column;
+    }
+
+    .file-label {
+        text-align: center;
+    }
+
+    .result-summary {
+        flex-direction: column;
+        gap: 10px;
+    }
+}
