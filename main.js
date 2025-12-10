@@ -599,20 +599,60 @@ async function extractDrawingNumber(image) {
     const tempCtx = tempCanvas.getContext('2d');
     tempCtx.putImageData(imageData, 0, 0);
 
-    // コントラスト強調（OCR精度向上のため）
-    enhanceContrast(tempCtx, tempCanvas.width, tempCanvas.height);
+    // 複数の前処理方法でOCRを試行
+    const preprocessMethods = [
+        { name: '標準（コントラスト強調）', fn: enhanceContrast },
+        { name: '反転（白黒反転）', fn: invertColors },
+        { name: 'シャープ化', fn: sharpenImage },
+        { name: '適応的二値化', fn: adaptiveThreshold }
+    ];
 
-    // Tesseract.js でOCR実行
-    const result = await tesseractWorker.recognize(tempCanvas);
-    const text = result.data.text;
+    let bestResult = null;
+    let bestConfidence = 0;
 
-    // 正規表現で図番を抽出
-    const match = text.match(config.drawingNumberPattern);
+    for (const method of preprocessMethods) {
+        // 前処理用のキャンバスをコピー
+        const processCanvas = document.createElement('canvas');
+        processCanvas.width = tempCanvas.width;
+        processCanvas.height = tempCanvas.height;
+        const processCtx = processCanvas.getContext('2d');
+        processCtx.drawImage(tempCanvas, 0, 0);
 
-    if (match) {
-        return match[0];
+        // 前処理を適用
+        method.fn(processCtx, processCanvas.width, processCanvas.height);
+
+        // デバッグ用：処理後の画像を表示（開発者ツールで確認可能）
+        console.log(`OCR試行: ${method.name}`);
+        console.log('処理後の画像:', processCanvas.toDataURL());
+
+        try {
+            // Tesseract.js でOCR実行
+            const result = await tesseractWorker.recognize(processCanvas);
+            const text = result.data.text.trim();
+            const confidence = result.data.confidence;
+
+            console.log(`  検出テキスト: "${text}"`);
+            console.log(`  信頼度: ${confidence.toFixed(2)}%`);
+
+            // 正規表現で図番を抽出
+            const match = text.match(config.drawingNumberPattern);
+
+            if (match && confidence > bestConfidence) {
+                bestResult = match[0];
+                bestConfidence = confidence;
+                console.log(`  ✅ マッチ成功: ${bestResult}`);
+            }
+        } catch (error) {
+            console.error(`  OCRエラー (${method.name}):`, error.message);
+        }
     }
 
+    if (bestResult) {
+        addLog('success', `OCR成功: ${bestResult} (信頼度: ${bestConfidence.toFixed(1)}%)`);
+        return bestResult;
+    }
+
+    addLog('warning', 'すべての前処理方法で図番を検出できませんでした');
     return null;
 }
 
@@ -630,6 +670,115 @@ function enhanceContrast(ctx, width, height) {
         data[i] = value;
         data[i + 1] = value;
         data[i + 2] = value;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+}
+
+// ========================================
+// 色反転（白黒反転）
+// ========================================
+function invertColors(ctx, width, height) {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+
+    // グレースケール化と反転
+    for (let i = 0; i < data.length; i += 4) {
+        const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        const value = 255 - avg; // 反転
+        data[i] = value;
+        data[i + 1] = value;
+        data[i + 2] = value;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+}
+
+// ========================================
+// シャープ化（エッジ強調）
+// ========================================
+function sharpenImage(ctx, width, height) {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    const tempData = new Uint8ClampedArray(data);
+
+    // シャープ化カーネル
+    const kernel = [
+        0, -1, 0,
+        -1, 5, -1,
+        0, -1, 0
+    ];
+
+    // 畳み込み処理
+    for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+            for (let c = 0; c < 3; c++) {
+                let sum = 0;
+                for (let ky = -1; ky <= 1; ky++) {
+                    for (let kx = -1; kx <= 1; kx++) {
+                        const idx = ((y + ky) * width + (x + kx)) * 4 + c;
+                        const kernelIdx = (ky + 1) * 3 + (kx + 1);
+                        sum += tempData[idx] * kernel[kernelIdx];
+                    }
+                }
+                const idx = (y * width + x) * 4 + c;
+                data[idx] = Math.max(0, Math.min(255, sum));
+            }
+        }
+    }
+
+    // グレースケール化と二値化
+    for (let i = 0; i < data.length; i += 4) {
+        const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        const value = avg > 128 ? 255 : 0;
+        data[i] = value;
+        data[i + 1] = value;
+        data[i + 2] = value;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+}
+
+// ========================================
+// 適応的二値化（局所的な閾値処理）
+// ========================================
+function adaptiveThreshold(ctx, width, height) {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+
+    // グレースケール化
+    const grayData = new Uint8Array(width * height);
+    for (let i = 0; i < data.length; i += 4) {
+        const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        grayData[i / 4] = gray;
+    }
+
+    // 適応的閾値処理（局所的な平均を使用）
+    const windowSize = 15;
+    const halfWindow = Math.floor(windowSize / 2);
+    const C = 10; // 定数（調整可能）
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            // 局所的な平均を計算
+            let sum = 0;
+            let count = 0;
+            for (let wy = Math.max(0, y - halfWindow); wy <= Math.min(height - 1, y + halfWindow); wy++) {
+                for (let wx = Math.max(0, x - halfWindow); wx <= Math.min(width - 1, x + halfWindow); wx++) {
+                    sum += grayData[wy * width + wx];
+                    count++;
+                }
+            }
+            const localMean = sum / count;
+            const threshold = localMean - C;
+
+            // 二値化
+            const idx = (y * width + x) * 4;
+            const value = grayData[y * width + x] > threshold ? 255 : 0;
+            data[idx] = value;
+            data[idx + 1] = value;
+            data[idx + 2] = value;
+        }
     }
 
     ctx.putImageData(imageData, 0, 0);
