@@ -19,8 +19,9 @@ const config = {
         height: 90      // 枠の高さ（ピクセル）
     },
 
-    // 図番の正規表現パターン（LW12345-A2-11 形式に対応）
-    drawingNumberPattern: /(LW|TS)\d{5}-[A-Z]\d-\d{2}/,
+    // 図番の正規表現パターン（様々な形式に対応）
+    // 例: LW12345-A2-11, TS1234-00-1, AB12345-BC-123 など
+    drawingNumberPattern: /[A-Z]{2}\d{4,5}-[A-Z0-9]{1,2}-\d{1,3}/,
 
     // QRコードのサイズ計算（20mm × 20mm = 枠の 2/3）
     qrSizeRatio: 2 / 3,
