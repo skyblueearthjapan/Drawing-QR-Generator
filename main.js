@@ -13,10 +13,10 @@ const config = {
 
     // QRコードを配置する□枠の領域（ユーザー調整値を反映）
     qrFrame: {
-        x: 2228,        // 左上のX座標（ユーザー調整値）
-        y: 132,         // 左上のY座標（ユーザー調整値）
-        width: 105,     // 枠のサイズ（ユーザー調整値）
-        height: 105     // 枠のサイズ（ユーザー調整値）
+        x: 2151,        // 左上のX座標（ユーザー調整値に修正）
+        y: 135,         // 左上のY座標（ユーザー調整値に修正）
+        width: 105,     // 枠のサイズ
+        height: 105     // 枠のサイズ
     },
 
     // 図番の正規表現パターン（様々な形式に対応）
@@ -632,6 +632,20 @@ async function extractDrawingNumber(image) {
     const tempCtx = tempCanvas.getContext('2d');
     tempCtx.putImageData(imageData, 0, 0);
 
+    // OCR最適化のためにリサイズ（Tesseractは300 DPIが最適）
+    const scale = 2.0;  // 2倍に拡大
+    const resizedCanvas = document.createElement('canvas');
+    resizedCanvas.width = tempCanvas.width * scale;
+    resizedCanvas.height = tempCanvas.height * scale;
+    const resizedCtx = resizedCanvas.getContext('2d');
+
+    // 高品質リサイズ（imageSmoothingEnabled を有効化）
+    resizedCtx.imageSmoothingEnabled = true;
+    resizedCtx.imageSmoothingQuality = 'high';
+    resizedCtx.drawImage(tempCanvas, 0, 0, resizedCanvas.width, resizedCanvas.height);
+
+    addLog('info', `OCR領域をリサイズ: ${tempCanvas.width}×${tempCanvas.height} → ${resizedCanvas.width}×${resizedCanvas.height}`);
+
     // 複数の前処理方法でOCRを試行
     const preprocessMethods = [
         { name: '標準（コントラスト強調）', fn: enhanceContrast },
@@ -644,12 +658,12 @@ async function extractDrawingNumber(image) {
     let bestConfidence = 0;
 
     for (const method of preprocessMethods) {
-        // 前処理用のキャンバスをコピー
+        // 前処理用のキャンバスをコピー（リサイズ後の画像を使用）
         const processCanvas = document.createElement('canvas');
-        processCanvas.width = tempCanvas.width;
-        processCanvas.height = tempCanvas.height;
+        processCanvas.width = resizedCanvas.width;
+        processCanvas.height = resizedCanvas.height;
         const processCtx = processCanvas.getContext('2d');
-        processCtx.drawImage(tempCanvas, 0, 0);
+        processCtx.drawImage(resizedCanvas, 0, 0);
 
         // 前処理を適用
         method.fn(processCtx, processCanvas.width, processCanvas.height);
