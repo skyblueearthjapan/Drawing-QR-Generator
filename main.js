@@ -45,7 +45,9 @@ let currentImage = null;
 let currentQRCanvas = null;
 let currentDrawingNumber = '';
 let currentFileType = 'png'; // 'png' or 'pdf'
-let pdfPages = []; // PDFの各ページ情報を保存
+let currentPdfDocument = null; // 現在処理中のPDFドキュメント（メモリ最適化のため）
+let currentPdfTotalPages = 0; // 現在のPDFの総ページ数
+let currentPdfPageNumber = 0; // 現在処理中のページ番号
 
 // QRコードの位置（ユーザーが調整可能）
 let qrPosition = {
@@ -232,13 +234,16 @@ async function processNextFile() {
         const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
         if (isPdf) {
-            // PDFの場合：全ページを読み込み、各ページを個別に処理
+            // PDFの場合：ドキュメントを開く（メモリ最適化：ページは後で1つずつ読み込む）
             currentFileType = 'pdf';
-            pdfPages = await loadPdfPages(file);
+            currentPdfDocument = await openPdfDocument(file);
+            currentPdfTotalPages = currentPdfDocument.numPages;
+
+            addLog('info', `PDF読み込み: ${currentPdfTotalPages}ページ`);
 
             // 最初のページから処理開始
-            if (pdfPages.length > 0) {
-                await processNextPdfPage(file, 0);
+            if (currentPdfTotalPages > 0) {
+                await processNextPdfPage(file, 1); // ページ番号は1から始まる
             } else {
                 throw new Error('PDFにページが見つかりませんでした');
             }
@@ -268,37 +273,43 @@ async function processNextFile() {
 }
 
 // ========================================
-// PDFの次のページを処理
+// PDFの次のページを処理（メモリ最適化：必要なページだけ読み込む）
 // ========================================
-async function processNextPdfPage(file, pageIndex) {
-    if (pageIndex >= pdfPages.length) {
+async function processNextPdfPage(file, pageNumber) {
+    if (pageNumber > currentPdfTotalPages) {
         // このPDFのすべてのページが完了、次のファイルへ
+        currentPdfDocument = null; // メモリ解放
+        currentPdfTotalPages = 0;
+        currentPdfPageNumber = 0;
         currentFileIndex++;
         await processNextFile();
         return;
     }
 
-    const pageData = pdfPages[pageIndex];
-    currentImage = pageData.image;
+    currentPdfPageNumber = pageNumber;
 
-    addLog('info', `PDF ${file.name} - ページ ${pageData.pageNumber}/${pdfPages.length}`);
+    addLog('info', `PDF ${file.name} - ページ ${pageNumber}/${currentPdfTotalPages} を読み込み中...`);
 
     try {
+        // このページだけを読み込む（メモリ最適化）
+        const pageData = await loadPdfPageByIndex(currentPdfDocument, pageNumber);
+        currentImage = pageData.image;
+
         // 図番をOCRで読み取る
         currentDrawingNumber = await extractDrawingNumber(currentImage);
 
         // プレビューモーダルを表示（ページ番号情報付き）
-        await showPreviewModal(file, currentImage, currentDrawingNumber, pageData.pageNumber, pdfPages.length);
+        await showPreviewModal(file, currentImage, currentDrawingNumber, pageNumber, currentPdfTotalPages);
 
     } catch (error) {
-        addLog('error', `エラー: ${file.name} ページ${pageData.pageNumber} - ${error.message}`);
+        addLog('error', `エラー: ${file.name} ページ${pageNumber} - ${error.message}`);
         errorFiles.push({
-            originalName: `${file.name} (ページ${pageData.pageNumber})`,
+            originalName: `${file.name} (ページ${pageNumber})`,
             error: error.message
         });
 
         // 次のページへ
-        await processNextPdfPage(file, pageIndex + 1);
+        await processNextPdfPage(file, pageNumber + 1);
     }
 }
 
@@ -539,10 +550,9 @@ async function skipCurrentFile() {
     previewModal.style.display = 'none';
 
     // PDFの場合は次のページ、PNGの場合は次のファイルへ
-    if (currentFileType === 'pdf' && pdfPages.length > 0) {
-        // 現在のページインデックスを取得
-        const currentPageIndex = pdfPages.findIndex(p => p.image === currentImage);
-        await processNextPdfPage(file, currentPageIndex + 1);
+    if (currentFileType === 'pdf' && currentPdfTotalPages > 0) {
+        // 次のページへ
+        await processNextPdfPage(file, currentPdfPageNumber + 1);
     } else {
         currentFileIndex++;
         await processNextFile();
@@ -625,6 +635,15 @@ async function approveCurrentFile() {
 
         addLog('success', `✅ 処理完了: ${finalFileName}`);
 
+        // メモリ最適化：処理済みページのimageオブジェクトを解放（PDF出力時にblobから復元）
+        if (currentFileType === 'pdf') {
+            const lastResult = processedResults[processedResults.length - 1];
+            if (lastResult) {
+                lastResult.image = null; // メモリ解放
+                addLog('info', 'メモリ解放: 処理済みページの画像オブジェクトを削除しました');
+            }
+        }
+
     } catch (error) {
         console.error('処理エラーの詳細:', error);
         addLog('error', `❌ 処理エラー: ${error.message}`);
@@ -639,10 +658,9 @@ async function approveCurrentFile() {
     previewModal.style.display = 'none';
 
     // PDFの場合は次のページ、PNGの場合は次のファイルへ
-    if (currentFileType === 'pdf' && pdfPages.length > 0) {
-        // 現在のページインデックスを取得
-        const currentPageIndex = pdfPages.findIndex(p => p.image === currentImage);
-        await processNextPdfPage(file, currentPageIndex + 1);
+    if (currentFileType === 'pdf' && currentPdfTotalPages > 0) {
+        // 次のページへ
+        await processNextPdfPage(file, currentPdfPageNumber + 1);
     } else {
         currentFileIndex++;
         await processNextFile();
@@ -703,51 +721,54 @@ function loadImage(file) {
 }
 
 // ========================================
-// PDFを読み込んで各ページをCanvasに変換
+// PDFドキュメントを開く（メモリ最適化：ページは読み込まない）
 // ========================================
-async function loadPdfPages(file) {
+async function openPdfDocument(file) {
     try {
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        const pages = [];
-
-        addLog('info', `PDF読み込み: ${pdf.numPages}ページ`);
-
-        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-            const page = await pdf.getPage(pageNum);
-            const viewport = page.getViewport({ scale: 2.0 }); // 高解像度で読み込み
-
-            const canvas = document.createElement('canvas');
-            canvas.width = viewport.width;
-            canvas.height = viewport.height;
-
-            const context = canvas.getContext('2d');
-            await page.render({
-                canvasContext: context,
-                viewport: viewport
-            }).promise;
-
-            // CanvasからImageを生成
-            const img = await new Promise((resolve, reject) => {
-                const image = new Image();
-                image.onload = () => resolve(image);
-                image.onerror = () => reject(new Error(`ページ${pageNum}の変換に失敗しました`));
-                image.src = canvas.toDataURL();
-            });
-
-            pages.push({
-                pageNumber: pageNum,
-                image: img,
-                width: viewport.width,
-                height: viewport.height
-            });
-
-            addLog('info', `ページ ${pageNum}/${pdf.numPages} を読み込みました`);
-        }
-
-        return pages;
+        return pdf;
     } catch (error) {
         throw new Error(`PDF読み込みエラー: ${error.message}`);
+    }
+}
+
+// ========================================
+// PDFの指定ページだけを読み込む（メモリ最適化：必要なページだけ読み込む）
+// ========================================
+async function loadPdfPageByIndex(pdf, pageNumber) {
+    try {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 2.0 }); // 高解像度で読み込み
+
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        const context = canvas.getContext('2d');
+        await page.render({
+            canvasContext: context,
+            viewport: viewport
+        }).promise;
+
+        // CanvasからImageを生成
+        const img = await new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error(`ページ${pageNumber}の変換に失敗しました`));
+            image.src = canvas.toDataURL();
+        });
+
+        addLog('info', `ページ ${pageNumber}/${pdf.numPages} を読み込みました`);
+
+        return {
+            pageNumber: pageNumber,
+            image: img,
+            width: viewport.width,
+            height: viewport.height
+        };
+    } catch (error) {
+        throw new Error(`ページ${pageNumber}の読み込みエラー: ${error.message}`);
     }
 }
 
@@ -1110,6 +1131,18 @@ function displayErrorFiles() {
 }
 
 // ========================================
+// Blobをdata URLに変換（メモリ最適化：PDF出力時に画像を復元）
+// ========================================
+function blobToDataURL(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+// ========================================
 // ZIPファイル/PDFのダウンロード
 // ========================================
 async function downloadZip() {
@@ -1131,7 +1164,15 @@ async function downloadZip() {
 
             for (let i = 0; i < pdfResults.length; i++) {
                 const result = pdfResults[i];
-                const imgData = result.image.src || result.blob;
+
+                // メモリ最適化：imageがnullの場合はblobから復元
+                let imgData;
+                if (result.image && result.image.src) {
+                    imgData = result.image.src;
+                } else {
+                    addLog('info', `ページ ${i + 1}: メモリから解放された画像をblobから復元中...`);
+                    imgData = await blobToDataURL(result.blob);
+                }
 
                 if (i === 0) {
                     // 最初のページ：PDFを初期化
