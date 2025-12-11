@@ -5,10 +5,10 @@ const config = {
     // OCR対象領域（図番が印刷されている右上の領域）
     // ユーザーの実際の図面サイズに合わせて調整
     ocrRegion: {
-        x: 1920,        // 左上のX座標（さらに左に移動）
-        y: 20,          // 左上のY座標（少し上に）
-        width: 520,     // 幅（さらに広く）
-        height: 100     // 高さ（さらに高く）
+        x: 1850,        // 左上のX座標（さらに左に70px移動）
+        y: 15,          // 左上のY座標（少し上に）
+        width: 600,     // 幅（さらに広く）
+        height: 110     // 高さ（さらに高く）
     },
 
     // QRコードを配置する□枠の領域（ユーザー調整値を反映）
@@ -698,8 +698,18 @@ async function extractDrawingNumber(image) {
                 console.log(`  信頼度: ${confidence.toFixed(2)}%`);
                 addLog('info', `[${ocrMode.name}] ${method.name}: "${text}" (信頼度: ${confidence.toFixed(1)}%)`);
 
-                // 正規表現で図番を抽出
-                const match = text.match(config.drawingNumberPattern);
+                // OCR誤認識文字を補正
+                let correctedText = correctOCRMistakes(text);
+                if (correctedText !== text) {
+                    console.log(`  補正後テキスト: "${correctedText}"`);
+                    addLog('info', `  → 補正後: "${correctedText}"`);
+                }
+
+                // 正規表現で図番を抽出（補正後のテキストも試行）
+                let match = correctedText.match(config.drawingNumberPattern);
+                if (!match && text !== correctedText) {
+                    match = text.match(config.drawingNumberPattern);
+                }
 
                 if (match && confidence > bestConfidence) {
                     bestResult = match[0];
@@ -721,6 +731,43 @@ async function extractDrawingNumber(image) {
 
     addLog('warning', 'すべての前処理方法で図番を検出できませんでした');
     return null;
+}
+
+// ========================================
+// OCR誤認識文字を補正
+// ========================================
+function correctOCRMistakes(text) {
+    if (!text) return text;
+
+    let corrected = text;
+
+    // 図番パターン（LW12345-A2-11形式）を想定した補正
+    // 1. 先頭2文字の補正（英字のみのはず）
+    corrected = corrected.replace(/^([YN])([I1V])/, (match, p1, p2) => {
+        // Y, N → L
+        const first = (p1 === 'Y' || p1 === 'N') ? 'L' : p1;
+        // I, 1, V → W
+        const second = (p2 === 'I' || p2 === '1' || p2 === 'V') ? 'W' : p2;
+        return first + second;
+    });
+
+    // 2. 数字部分の補正
+    // I → 1（数字部分）
+    corrected = corrected.replace(/(\d+)[I](\d+)/g, '$11$2');
+
+    // 3. 末尾の補正（-XX-YY形式）
+    // I1 → 11, I → 1
+    corrected = corrected.replace(/-([A-Z]\d)-[I]1?$/, (match, p1) => {
+        return `-${p1}-11`;
+    });
+
+    // 4. その他の一般的な誤認識
+    // O → 0（数字の中）
+    corrected = corrected.replace(/(\d+)O(\d+)/g, '$10$2');
+    // S → 5（数字の中）
+    corrected = corrected.replace(/(\d+)S(\d+)/g, '$15$2');
+
+    return corrected;
 }
 
 // ========================================
