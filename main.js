@@ -13,8 +13,8 @@ const config = {
 
     // QRコードを配置する□枠の領域（ユーザー調整値を反映）
     qrFrame: {
-        x: 2222,        // 左上のX座標（ユーザー調整値）
-        y: 129,         // 左上のY座標（ユーザー調整値）
+        x: 2228,        // 左上のX座標（ユーザー調整値）
+        y: 132,         // 左上のY座標（ユーザー調整値）
         width: 105,     // 枠のサイズ（ユーザー調整値）
         height: 105     // 枠のサイズ（ユーザー調整値）
     },
@@ -85,6 +85,7 @@ const previewModal = document.getElementById('preview-modal');
 const modalFileInfo = document.getElementById('modal-file-info');
 const previewCanvas = document.getElementById('preview-canvas');
 const qrOverlay = document.getElementById('qr-overlay');
+const ocrOverlay = document.getElementById('ocr-overlay');
 const drawingNumberInput = document.getElementById('drawing-number-input');
 const ocrStatus = document.getElementById('ocr-status');
 const qrXSlider = document.getElementById('qr-x-slider');
@@ -326,7 +327,7 @@ function updateQROverlay() {
     const rect = previewCanvas.getBoundingClientRect();
     canvasScale = rect.width / previewCanvas.width;
 
-    // オーバーレイの位置とサイズを計算
+    // QRオーバーレイの位置とサイズを計算
     const overlayX = qrPosition.x * canvasScale;
     const overlayY = qrPosition.y * canvasScale;
     const overlaySize = qrPosition.size * canvasScale;
@@ -335,6 +336,17 @@ function updateQROverlay() {
     qrOverlay.style.top = `${overlayY}px`;
     qrOverlay.style.width = `${overlaySize}px`;
     qrOverlay.style.height = `${overlaySize}px`;
+
+    // OCR領域オーバーレイの位置とサイズを計算
+    const ocrX = config.ocrRegion.x * canvasScale;
+    const ocrY = config.ocrRegion.y * canvasScale;
+    const ocrWidth = config.ocrRegion.width * canvasScale;
+    const ocrHeight = config.ocrRegion.height * canvasScale;
+
+    ocrOverlay.style.left = `${ocrX}px`;
+    ocrOverlay.style.top = `${ocrY}px`;
+    ocrOverlay.style.width = `${ocrWidth}px`;
+    ocrOverlay.style.height = `${ocrHeight}px`;
 }
 
 // ========================================
