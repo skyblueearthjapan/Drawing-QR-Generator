@@ -533,15 +533,23 @@ async function approveCurrentFile() {
         }
         addLog('info', `Blob生成完了 (サイズ: ${(blob.size / 1024).toFixed(1)}KB)`);
 
+        // 同じファイル名が既に存在する場合は連番を付ける
+        let finalFileName = `${drawingNum}.png`;
+        let duplicateCount = processedResults.filter(r => r.newFileName === finalFileName).length;
+        if (duplicateCount > 0) {
+            finalFileName = `${drawingNum}_${duplicateCount + 1}.png`;
+            addLog('warning', `⚠️ 同じ図番が既に存在します。連番を付けます: ${finalFileName}`);
+        }
+
         // 結果を保存
         processedResults.push({
             originalName: file.name,
-            newFileName: `${drawingNum}.png`,
+            newFileName: finalFileName,
             drawingNumber: drawingNum,
             blob: blob
         });
 
-        addLog('success', `✅ 処理完了: ${drawingNum}.png`);
+        addLog('success', `✅ 処理完了: ${finalFileName}`);
 
     } catch (error) {
         console.error('処理エラーの詳細:', error);
