@@ -5,9 +5,9 @@ const config = {
     // OCR対象領域（図番が印刷されている右上の領域）
     // ユーザーの実際の図面サイズに合わせて調整
     ocrRegion: {
-        x: 2060,        // 左上のX座標（図番の位置）
+        x: 1980,        // 左上のX座標（図番の位置 - 左に移動）
         y: 25,          // 左上のY座標
-        width: 400,     // 幅（広めに設定）
+        width: 450,     // 幅（広めに設定）
         height: 90      // 高さ（広めに設定）
     },
 
@@ -495,27 +495,39 @@ async function approveCurrentFile() {
     addLog('info', `確定: ${file.name} → ${drawingNum}.png`);
 
     try {
+        addLog('info', '画像処理を開始...');
+
         // 最終的な画像を生成
         const ctx = hiddenCanvas.getContext('2d');
         hiddenCanvas.width = currentImage.width;
         hiddenCanvas.height = currentImage.height;
         ctx.drawImage(currentImage, 0, 0);
+        addLog('info', `キャンバスサイズ: ${currentImage.width}×${currentImage.height}`);
 
         // QRコードを生成（まだ生成されていない場合は新規生成）
+        addLog('info', `QRコード生成中... (サイズ: ${qrPosition.size}px, 位置: ${qrPosition.x}, ${qrPosition.y})`);
         const qrCanvas = document.createElement('canvas');
         await QRCode.toCanvas(qrCanvas, drawingNum, {
             width: qrPosition.size,
             margin: 0,
             errorCorrectionLevel: 'M'
         });
+        addLog('info', 'QRコード生成完了');
 
         // 背景を白で塗りつぶしてQRコードを描画
         ctx.fillStyle = 'white';
         ctx.fillRect(qrPosition.x, qrPosition.y, qrPosition.size, qrPosition.size);
         ctx.drawImage(qrCanvas, qrPosition.x, qrPosition.y);
+        addLog('info', 'QRコードを画像に合成完了');
 
         // Blobに変換
+        addLog('info', 'PNG形式に変換中...');
         const blob = await canvasToBlob(hiddenCanvas);
+
+        if (!blob) {
+            throw new Error('Blob生成に失敗しました');
+        }
+        addLog('info', `Blob生成完了 (サイズ: ${(blob.size / 1024).toFixed(1)}KB)`);
 
         // 結果を保存
         processedResults.push({
@@ -528,7 +540,9 @@ async function approveCurrentFile() {
         addLog('success', `✅ 処理完了: ${drawingNum}.png`);
 
     } catch (error) {
-        addLog('error', `処理エラー: ${error.message}`);
+        console.error('処理エラーの詳細:', error);
+        addLog('error', `❌ 処理エラー: ${error.message}`);
+        addLog('error', `エラー詳細: ${error.stack || 'スタックトレースなし'}`);
         errorFiles.push({
             originalName: file.name,
             error: error.message
