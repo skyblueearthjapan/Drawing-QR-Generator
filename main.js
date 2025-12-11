@@ -711,11 +711,14 @@ async function extractDrawingNumber(image) {
                     match = text.match(config.drawingNumberPattern);
                 }
 
-                if (match && confidence > bestConfidence) {
-                    bestResult = match[0];
-                    bestConfidence = confidence;
-                    console.log(`  ✅ マッチ成功: ${bestResult}`);
-                    addLog('success', `✅ マッチ成功 [${ocrMode.name}/${method.name}]: ${bestResult}`);
+                if (match) {
+                    // マッチした場合、信頼度が高いものを優先（信頼度0でも採用）
+                    if (!bestResult || confidence >= bestConfidence) {
+                        bestResult = match[0];
+                        bestConfidence = confidence;
+                        console.log(`  ✅ マッチ成功: ${bestResult} (信頼度: ${confidence.toFixed(2)}%)`);
+                        addLog('success', `✅ マッチ成功 [${ocrMode.name}/${method.name}]: ${bestResult} (信頼度: ${confidence.toFixed(1)}%)`);
+                    }
                 }
             } catch (error) {
                 console.error(`  OCRエラー [${ocrMode.name}/${method.name}]:`, error.message);
