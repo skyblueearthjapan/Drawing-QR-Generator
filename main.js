@@ -5,10 +5,10 @@ const config = {
     // OCR対象領域（図番が印刷されている右上の領域）
     // ユーザーの実際の図面サイズに合わせて調整
     ocrRegion: {
-        x: 2100,        // 左上のX座標（図番の位置）
-        y: 35,          // 左上のY座標
-        width: 280,     // 幅
-        height: 70      // 高さ
+        x: 2060,        // 左上のX座標（図番の位置）
+        y: 25,          // 左上のY座標
+        width: 400,     // 幅（広めに設定）
+        height: 90      // 高さ（広めに設定）
     },
 
     // QRコードを配置する□枠の領域（ユーザー調整値を反映）
@@ -22,9 +22,6 @@ const config = {
     // 図番の正規表現パターン（様々な形式に対応）
     // 例: LW12345-A2-11, TS1234-00-1, AB12345-BC-123 など
     drawingNumberPattern: /[A-Z]{2}\d{4,5}-[A-Z0-9]{1,2}-\d{1,3}/,
-
-    // QRコードのサイズ計算（20mm × 20mm = 枠の 2/3）
-    qrSizeRatio: 2 / 3,
 
     // Tesseract.js の言語設定
     ocrLanguage: 'eng',
@@ -52,7 +49,7 @@ let currentDrawingNumber = '';
 let qrPosition = {
     x: config.qrFrame.x,
     y: config.qrFrame.y,
-    size: Math.round(config.qrFrame.width * config.qrSizeRatio)
+    size: config.qrFrame.width  // デフォルト105px
 };
 
 // ドラッグ関連
@@ -396,7 +393,7 @@ function handleSliderChange(event) {
 function resetQRPosition() {
     qrPosition.x = config.qrFrame.x;
     qrPosition.y = config.qrFrame.y;
-    qrPosition.size = Math.round(config.qrFrame.width * config.qrSizeRatio);
+    qrPosition.size = config.qrFrame.width;  // デフォルト105px
 
     qrXSlider.value = qrPosition.x;
     qrYSlider.value = qrPosition.y;
@@ -504,12 +501,18 @@ async function approveCurrentFile() {
         hiddenCanvas.height = currentImage.height;
         ctx.drawImage(currentImage, 0, 0);
 
-        // QRコードを描画
-        if (currentQRCanvas) {
-            ctx.fillStyle = 'white';
-            ctx.fillRect(qrPosition.x, qrPosition.y, qrPosition.size, qrPosition.size);
-            ctx.drawImage(currentQRCanvas, qrPosition.x, qrPosition.y);
-        }
+        // QRコードを生成（まだ生成されていない場合は新規生成）
+        const qrCanvas = document.createElement('canvas');
+        await QRCode.toCanvas(qrCanvas, drawingNum, {
+            width: qrPosition.size,
+            margin: 0,
+            errorCorrectionLevel: 'M'
+        });
+
+        // 背景を白で塗りつぶしてQRコードを描画
+        ctx.fillStyle = 'white';
+        ctx.fillRect(qrPosition.x, qrPosition.y, qrPosition.size, qrPosition.size);
+        ctx.drawImage(qrCanvas, qrPosition.x, qrPosition.y);
 
         // Blobに変換
         const blob = await canvasToBlob(hiddenCanvas);
