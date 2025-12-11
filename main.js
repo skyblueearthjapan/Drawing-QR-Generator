@@ -506,7 +506,7 @@ async function approveCurrentFile() {
         addLog('info', `キャンバスサイズ: ${currentImage.width}×${currentImage.height}`);
 
         // QRコードを生成（QRious使用）
-        addLog('info', `QRコード生成中... (サイズ: ${qrPosition.size}px, 位置: ${qrPosition.x}, ${qrPosition.y})`);
+        addLog('info', `QRコード生成中... (サイズ: ${qrPosition.size}px, 位置: X:${qrPosition.x}, Y:${qrPosition.y})`);
         const qrCanvas = document.createElement('canvas');
         new QRious({
             element: qrCanvas,
@@ -514,13 +514,15 @@ async function approveCurrentFile() {
             size: qrPosition.size,
             level: 'M'
         });
-        addLog('info', 'QRコード生成完了');
+        addLog('info', `QRコード生成完了 (実際のCanvasサイズ: ${qrCanvas.width}×${qrCanvas.height})`);
 
         // 背景を白で塗りつぶしてQRコードを描画
         ctx.fillStyle = 'white';
         ctx.fillRect(qrPosition.x, qrPosition.y, qrPosition.size, qrPosition.size);
+        addLog('info', `白背景描画: X:${qrPosition.x}, Y:${qrPosition.y}, サイズ:${qrPosition.size}`);
+
         ctx.drawImage(qrCanvas, qrPosition.x, qrPosition.y);
-        addLog('info', 'QRコードを画像に合成完了');
+        addLog('info', `QRコードを画像に合成完了 (描画位置: X:${qrPosition.x}, Y:${qrPosition.y})`);
 
         // Blobに変換
         addLog('info', 'PNG形式に変換中...');
@@ -664,6 +666,7 @@ async function extractDrawingNumber(image) {
 
             console.log(`  検出テキスト: "${text}"`);
             console.log(`  信頼度: ${confidence.toFixed(2)}%`);
+            addLog('info', `${method.name}: "${text}" (信頼度: ${confidence.toFixed(1)}%)`);
 
             // 正規表現で図番を抽出
             const match = text.match(config.drawingNumberPattern);
@@ -672,9 +675,11 @@ async function extractDrawingNumber(image) {
                 bestResult = match[0];
                 bestConfidence = confidence;
                 console.log(`  ✅ マッチ成功: ${bestResult}`);
+                addLog('success', `マッチ成功: ${bestResult}`);
             }
         } catch (error) {
             console.error(`  OCRエラー (${method.name}):`, error.message);
+            addLog('error', `OCRエラー (${method.name}): ${error.message}`);
         }
     }
 
