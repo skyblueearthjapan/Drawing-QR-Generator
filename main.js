@@ -633,7 +633,7 @@ async function extractDrawingNumber(image) {
     tempCtx.putImageData(imageData, 0, 0);
 
     // OCR最適化のためにリサイズ（Tesseractは300 DPIが最適）
-    const scale = 2.0;  // 2倍に拡大
+    const scale = 3.0;  // 3倍に拡大（より高解像度）
     const resizedCanvas = document.createElement('canvas');
     resizedCanvas.width = tempCanvas.width * scale;
     resizedCanvas.height = tempCanvas.height * scale;
@@ -644,7 +644,14 @@ async function extractDrawingNumber(image) {
     resizedCtx.imageSmoothingQuality = 'high';
     resizedCtx.drawImage(tempCanvas, 0, 0, resizedCanvas.width, resizedCanvas.height);
 
-    addLog('info', `OCR領域をリサイズ: ${tempCanvas.width}×${tempCanvas.height} → ${resizedCanvas.width}×${resizedCanvas.height}`);
+    addLog('info', `OCR領域をリサイズ: ${tempCanvas.width}×${tempCanvas.height} → ${resizedCanvas.width}×${resizedCanvas.height} (3倍)`);
+
+    // 複数のOCRモードを試行
+    const ocrModes = [
+        { name: 'SINGLE_LINE', mode: Tesseract.PSM.SINGLE_LINE },
+        { name: 'SINGLE_BLOCK', mode: Tesseract.PSM.SINGLE_BLOCK },
+        { name: 'SPARSE_TEXT', mode: Tesseract.PSM.SPARSE_TEXT }
+    ];
 
     // 複数の前処理方法でOCRを試行
     const preprocessMethods = [
@@ -657,43 +664,53 @@ async function extractDrawingNumber(image) {
     let bestResult = null;
     let bestConfidence = 0;
 
-    for (const method of preprocessMethods) {
-        // 前処理用のキャンバスをコピー（リサイズ後の画像を使用）
-        const processCanvas = document.createElement('canvas');
-        processCanvas.width = resizedCanvas.width;
-        processCanvas.height = resizedCanvas.height;
-        const processCtx = processCanvas.getContext('2d');
-        processCtx.drawImage(resizedCanvas, 0, 0);
+    for (const ocrMode of ocrModes) {
+        // OCRモードを設定
+        await tesseractWorker.setParameters({
+            ...config.ocrConfig,
+            tessedit_pageseg_mode: ocrMode.mode
+        });
 
-        // 前処理を適用
-        method.fn(processCtx, processCanvas.width, processCanvas.height);
+        addLog('info', `OCRモード: ${ocrMode.name}`);
 
-        // デバッグ用：処理後の画像を表示（開発者ツールで確認可能）
-        console.log(`OCR試行: ${method.name}`);
-        console.log('処理後の画像:', processCanvas.toDataURL());
+        for (const method of preprocessMethods) {
+            // 前処理用のキャンバスをコピー（リサイズ後の画像を使用）
+            const processCanvas = document.createElement('canvas');
+            processCanvas.width = resizedCanvas.width;
+            processCanvas.height = resizedCanvas.height;
+            const processCtx = processCanvas.getContext('2d');
+            processCtx.drawImage(resizedCanvas, 0, 0);
 
-        try {
-            // Tesseract.js でOCR実行
-            const result = await tesseractWorker.recognize(processCanvas);
-            const text = result.data.text.trim();
-            const confidence = result.data.confidence;
+            // 前処理を適用
+            method.fn(processCtx, processCanvas.width, processCanvas.height);
 
-            console.log(`  検出テキスト: "${text}"`);
-            console.log(`  信頼度: ${confidence.toFixed(2)}%`);
-            addLog('info', `${method.name}: "${text}" (信頼度: ${confidence.toFixed(1)}%)`);
+            // デバッグ用：処理後の画像を表示（開発者ツールで確認可能）
+            console.log(`OCR試行 [${ocrMode.name}]: ${method.name}`);
+            console.log('処理後の画像:', processCanvas.toDataURL());
 
-            // 正規表現で図番を抽出
-            const match = text.match(config.drawingNumberPattern);
+            try {
+                // Tesseract.js でOCR実行
+                const result = await tesseractWorker.recognize(processCanvas);
+                const text = result.data.text.trim();
+                const confidence = result.data.confidence;
 
-            if (match && confidence > bestConfidence) {
-                bestResult = match[0];
-                bestConfidence = confidence;
-                console.log(`  ✅ マッチ成功: ${bestResult}`);
-                addLog('success', `マッチ成功: ${bestResult}`);
+                console.log(`  検出テキスト: "${text}"`);
+                console.log(`  信頼度: ${confidence.toFixed(2)}%`);
+                addLog('info', `[${ocrMode.name}] ${method.name}: "${text}" (信頼度: ${confidence.toFixed(1)}%)`);
+
+                // 正規表現で図番を抽出
+                const match = text.match(config.drawingNumberPattern);
+
+                if (match && confidence > bestConfidence) {
+                    bestResult = match[0];
+                    bestConfidence = confidence;
+                    console.log(`  ✅ マッチ成功: ${bestResult}`);
+                    addLog('success', `✅ マッチ成功 [${ocrMode.name}/${method.name}]: ${bestResult}`);
+                }
+            } catch (error) {
+                console.error(`  OCRエラー [${ocrMode.name}/${method.name}]:`, error.message);
+                addLog('error', `OCRエラー [${ocrMode.name}/${method.name}]: ${error.message}`);
             }
-        } catch (error) {
-            console.error(`  OCRエラー (${method.name}):`, error.message);
-            addLog('error', `OCRエラー (${method.name}): ${error.message}`);
         }
     }
 
