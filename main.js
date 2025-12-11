@@ -228,14 +228,31 @@ async function processNextFile() {
     addLog('info', `処理中: ${file.name}`);
 
     try {
-        // 1. 画像を読み込む
-        currentImage = await loadImage(file);
+        // ファイルタイプを判定
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
-        // 2. 図番をOCRで読み取る
-        currentDrawingNumber = await extractDrawingNumber(currentImage);
+        if (isPdf) {
+            // PDFの場合：全ページを読み込み、各ページを個別に処理
+            currentFileType = 'pdf';
+            pdfPages = await loadPdfPages(file);
 
-        // 3. プレビューモーダルを表示
-        await showPreviewModal(file, currentImage, currentDrawingNumber);
+            // 最初のページから処理開始
+            if (pdfPages.length > 0) {
+                await processNextPdfPage(file, 0);
+            } else {
+                throw new Error('PDFにページが見つかりませんでした');
+            }
+        } else {
+            // PNGの場合：従来通り
+            currentFileType = 'png';
+            currentImage = await loadImage(file);
+
+            // 図番をOCRで読み取る
+            currentDrawingNumber = await extractDrawingNumber(currentImage);
+
+            // プレビューモーダルを表示
+            await showPreviewModal(file, currentImage, currentDrawingNumber);
+        }
 
     } catch (error) {
         addLog('error', `エラー: ${file.name} - ${error.message}`);
@@ -251,11 +268,50 @@ async function processNextFile() {
 }
 
 // ========================================
+// PDFの次のページを処理
+// ========================================
+async function processNextPdfPage(file, pageIndex) {
+    if (pageIndex >= pdfPages.length) {
+        // このPDFのすべてのページが完了、次のファイルへ
+        currentFileIndex++;
+        await processNextFile();
+        return;
+    }
+
+    const pageData = pdfPages[pageIndex];
+    currentImage = pageData.image;
+
+    addLog('info', `PDF ${file.name} - ページ ${pageData.pageNumber}/${pdfPages.length}`);
+
+    try {
+        // 図番をOCRで読み取る
+        currentDrawingNumber = await extractDrawingNumber(currentImage);
+
+        // プレビューモーダルを表示（ページ番号情報付き）
+        await showPreviewModal(file, currentImage, currentDrawingNumber, pageData.pageNumber, pdfPages.length);
+
+    } catch (error) {
+        addLog('error', `エラー: ${file.name} ページ${pageData.pageNumber} - ${error.message}`);
+        errorFiles.push({
+            originalName: `${file.name} (ページ${pageData.pageNumber})`,
+            error: error.message
+        });
+
+        // 次のページへ
+        await processNextPdfPage(file, pageIndex + 1);
+    }
+}
+
+// ========================================
 // プレビューモーダルを表示
 // ========================================
-async function showPreviewModal(file, image, drawingNumber) {
+async function showPreviewModal(file, image, drawingNumber, pageNumber = null, totalPages = null) {
     // モーダル情報を設定
-    modalFileInfo.textContent = `ファイル ${currentFileIndex + 1}/${selectedFiles.length}: ${file.name}`;
+    let fileInfo = `ファイル ${currentFileIndex + 1}/${selectedFiles.length}: ${file.name}`;
+    if (pageNumber !== null && totalPages !== null) {
+        fileInfo += ` (ページ ${pageNumber}/${totalPages})`;
+    }
+    modalFileInfo.textContent = fileInfo;
 
     // 図番入力フィールドを設定
     drawingNumberInput.value = drawingNumber || '';
@@ -482,9 +538,15 @@ async function skipCurrentFile() {
     // モーダルを閉じる
     previewModal.style.display = 'none';
 
-    // 次のファイルへ
-    currentFileIndex++;
-    await processNextFile();
+    // PDFの場合は次のページ、PNGの場合は次のファイルへ
+    if (currentFileType === 'pdf' && pdfPages.length > 0) {
+        // 現在のページインデックスを取得
+        const currentPageIndex = pdfPages.findIndex(p => p.image === currentImage);
+        await processNextPdfPage(file, currentPageIndex + 1);
+    } else {
+        currentFileIndex++;
+        await processNextFile();
+    }
 }
 
 // ========================================
@@ -540,11 +602,12 @@ async function approveCurrentFile() {
         }
         addLog('info', `Blob生成完了 (サイズ: ${(blob.size / 1024).toFixed(1)}KB)`);
 
-        // 同じファイル名が既に存在する場合は連番を付ける
-        let finalFileName = `${drawingNum}.png`;
+        // ファイル名の決定（PNGまたはPDF）
+        const fileExtension = currentFileType === 'pdf' ? 'pdf' : 'png';
+        let finalFileName = `${drawingNum}.${fileExtension}`;
         let duplicateCount = processedResults.filter(r => r.newFileName === finalFileName).length;
         if (duplicateCount > 0) {
-            finalFileName = `${drawingNum}_${duplicateCount + 1}.png`;
+            finalFileName = `${drawingNum}_${duplicateCount + 1}.${fileExtension}`;
             addLog('warning', `⚠️ 同じ図番が既に存在します。連番を付けます: ${finalFileName}`);
         }
 
@@ -553,7 +616,11 @@ async function approveCurrentFile() {
             originalName: file.name,
             newFileName: finalFileName,
             drawingNumber: drawingNum,
-            blob: blob
+            blob: blob,
+            fileType: currentFileType,
+            image: currentImage,
+            width: currentImage.width,
+            height: currentImage.height
         });
 
         addLog('success', `✅ 処理完了: ${finalFileName}`);
@@ -571,9 +638,15 @@ async function approveCurrentFile() {
     // モーダルを閉じる
     previewModal.style.display = 'none';
 
-    // 次のファイルへ
-    currentFileIndex++;
-    await processNextFile();
+    // PDFの場合は次のページ、PNGの場合は次のファイルへ
+    if (currentFileType === 'pdf' && pdfPages.length > 0) {
+        // 現在のページインデックスを取得
+        const currentPageIndex = pdfPages.findIndex(p => p.image === currentImage);
+        await processNextPdfPage(file, currentPageIndex + 1);
+    } else {
+        currentFileIndex++;
+        await processNextFile();
+    }
 }
 
 // ========================================
@@ -1037,47 +1110,97 @@ function displayErrorFiles() {
 }
 
 // ========================================
-// ZIPファイルのダウンロード
+// ZIPファイル/PDFのダウンロード
 // ========================================
 async function downloadZip() {
-    addLog('info', 'ZIPファイルを生成中...');
+    addLog('info', 'ファイルを生成中...');
     downloadBtn.disabled = true;
     downloadBtn.textContent = '生成中...';
 
     try {
-        // JSZip インスタンスを作成
-        const zip = new JSZip();
+        // PDFページとPNGファイルを分離
+        const pdfResults = processedResults.filter(r => r.fileType === 'pdf');
+        const pngResults = processedResults.filter(r => r.fileType === 'png');
 
-        // 処理済みファイルをZIPに追加
-        for (const result of processedResults) {
-            zip.file(result.newFileName, result.blob);
+        // PDFページがある場合は、1つのPDFにまとめる
+        if (pdfResults.length > 0) {
+            addLog('info', `${pdfResults.length}ページをPDFにまとめています...`);
+
+            const { jsPDF } = window.jspdf;
+            let pdf = null;
+
+            for (let i = 0; i < pdfResults.length; i++) {
+                const result = pdfResults[i];
+                const imgData = result.image.src || result.blob;
+
+                if (i === 0) {
+                    // 最初のページ：PDFを初期化
+                    const orientation = result.width > result.height ? 'l' : 'p';
+                    pdf = new jsPDF({
+                        orientation: orientation,
+                        unit: 'px',
+                        format: [result.width, result.height]
+                    });
+                } else {
+                    // 2ページ目以降：新しいページを追加
+                    pdf.addPage([result.width, result.height]);
+                }
+
+                // 画像をPDFに追加
+                pdf.addImage(imgData, 'PNG', 0, 0, result.width, result.height);
+
+                addLog('info', `ページ ${i + 1}/${pdfResults.length} を追加しました`);
+            }
+
+            // PDFを保存
+            const pdfBlob = pdf.output('blob');
+            const url = URL.createObjectURL(pdfBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `drawing_qr_result_${getTimestamp()}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            addLog('success', `PDFファイルのダウンロードを開始しました (${pdfResults.length}ページ)`);
         }
 
-        // ZIPファイルを生成
-        const zipBlob = await zip.generateAsync({
-            type: 'blob',
-            compression: 'DEFLATE',
-            compressionOptions: { level: 6 }
-        });
+        // PNGファイルがある場合は、ZIPにまとめる
+        if (pngResults.length > 0) {
+            addLog('info', `${pngResults.length}個のPNGファイルをZIPにまとめています...`);
 
-        // ダウンロードリンクを作成
-        const url = URL.createObjectURL(zipBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `drawing_qr_result_${getTimestamp()}.zip`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+            const zip = new JSZip();
 
-        addLog('success', 'ZIPファイルのダウンロードを開始しました');
+            for (const result of pngResults) {
+                zip.file(result.newFileName, result.blob);
+            }
+
+            const zipBlob = await zip.generateAsync({
+                type: 'blob',
+                compression: 'DEFLATE',
+                compressionOptions: { level: 6 }
+            });
+
+            const url = URL.createObjectURL(zipBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `drawing_qr_result_png_${getTimestamp()}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            addLog('success', `ZIPファイルのダウンロードを開始しました (${pngResults.length}ファイル)`);
+        }
 
     } catch (error) {
-        addLog('error', `ZIPファイルの生成に失敗しました: ${error.message}`);
-        alert('ZIPファイルの生成に失敗しました');
+        console.error('ダウンロードエラー:', error);
+        addLog('error', `ファイルの生成に失敗しました: ${error.message}`);
+        alert('ファイルの生成に失敗しました');
     } finally {
         downloadBtn.disabled = false;
-        downloadBtn.textContent = '💾 結果をダウンロード (ZIP)';
+        downloadBtn.textContent = '💾 結果をダウンロード';
     }
 }
 
