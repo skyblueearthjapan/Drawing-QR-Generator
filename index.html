@@ -14,6 +14,12 @@
 
     <!-- QRious (QRコード生成用) - Canvas対応で簡単 -->
     <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
+
+    <!-- PDF.js (PDF読み込み用) -->
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+
+    <!-- jsPDF (PDF出力用) -->
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -27,7 +33,7 @@
         <main>
             <!-- ファイル選択セクション -->
             <section class="input-section">
-                <h2>1. 図面画像を選択</h2>
+                <h2>1. 図面ファイルを選択（PNG または PDF）</h2>
                 <div class="file-input-wrapper">
                     <label for="folder-input" class="file-label">
                         📁 フォルダを選択
@@ -38,7 +44,7 @@
                         webkitdirectory
                         directory
                         multiple
-                        accept="image/png"
+                        accept="image/png,application/pdf"
                         class="file-input"
                     >
 
@@ -49,7 +55,7 @@
                         type="file"
                         id="file-input"
                         multiple
-                        accept="image/png"
+                        accept="image/png,application/pdf"
                         class="file-input"
                     >
                 </div>

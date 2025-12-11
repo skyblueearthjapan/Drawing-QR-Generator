@@ -44,6 +44,8 @@ let currentFileIndex = 0;
 let currentImage = null;
 let currentQRCanvas = null;
 let currentDrawingNumber = '';
+let currentFileType = 'png'; // 'png' or 'pdf'
+let pdfPages = []; // PDFの各ページ情報を保存
 
 // QRコードの位置（ユーザーが調整可能）
 let qrPosition = {
@@ -131,21 +133,26 @@ document.addEventListener('mouseup', endDrag);
 function handleFileSelect(event) {
     const files = Array.from(event.target.files);
 
-    // PNGファイルのみをフィルタリング
-    selectedFiles = files.filter(file =>
-        file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')
-    );
+    // PNGまたはPDFファイルをフィルタリング
+    selectedFiles = files.filter(file => {
+        const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png');
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        return isPng || isPdf;
+    });
 
     // ファイル数を表示
-    fileCount.textContent = `選択されたファイル: ${selectedFiles.length}個`;
+    const pngCount = selectedFiles.filter(f => f.type === 'image/png' || f.name.toLowerCase().endsWith('.png')).length;
+    const pdfCount = selectedFiles.length - pngCount;
+
+    fileCount.textContent = `選択されたファイル: ${selectedFiles.length}個 (PNG: ${pngCount}, PDF: ${pdfCount})`;
 
     // 処理開始ボタンを有効化
     if (selectedFiles.length > 0) {
         processBtn.disabled = false;
-        addLog('info', `${selectedFiles.length}個のPNGファイルが選択されました`);
+        addLog('info', `${selectedFiles.length}個のファイルが選択されました (PNG: ${pngCount}, PDF: ${pdfCount})`);
     } else {
         processBtn.disabled = true;
-        addLog('error', 'PNGファイルが見つかりませんでした');
+        addLog('error', 'PNG/PDFファイルが見つかりませんでした');
     }
 }
 
@@ -597,7 +604,14 @@ function updateProgress(percentage, current, total, fileName) {
 }
 
 // ========================================
-// 画像を読み込む
+// PDF.jsの初期化
+// ========================================
+if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
+
+// ========================================
+// 画像を読み込む（PNG用）
 // ========================================
 function loadImage(file) {
     return new Promise((resolve, reject) => {
@@ -613,6 +627,55 @@ function loadImage(file) {
         reader.onerror = () => reject(new Error('ファイルの読み込みに失敗しました'));
         reader.readAsDataURL(file);
     });
+}
+
+// ========================================
+// PDFを読み込んで各ページをCanvasに変換
+// ========================================
+async function loadPdfPages(file) {
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const pages = [];
+
+        addLog('info', `PDF読み込み: ${pdf.numPages}ページ`);
+
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 2.0 }); // 高解像度で読み込み
+
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            const context = canvas.getContext('2d');
+            await page.render({
+                canvasContext: context,
+                viewport: viewport
+            }).promise;
+
+            // CanvasからImageを生成
+            const img = await new Promise((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error(`ページ${pageNum}の変換に失敗しました`));
+                image.src = canvas.toDataURL();
+            });
+
+            pages.push({
+                pageNumber: pageNum,
+                image: img,
+                width: viewport.width,
+                height: viewport.height
+            });
+
+            addLog('info', `ページ ${pageNum}/${pdf.numPages} を読み込みました`);
+        }
+
+        return pages;
+    } catch (error) {
+        throw new Error(`PDF読み込みエラー: ${error.message}`);
+    }
 }
 
 // ========================================
