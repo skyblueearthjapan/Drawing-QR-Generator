@@ -5,10 +5,10 @@ const config = {
     // OCR対象領域（図番が印刷されている右上の領域）
     // ユーザーの実際の図面サイズに合わせて調整
     ocrRegion: {
-        x: 1850,        // 左上のX座標（さらに左に70px移動）
-        y: 15,          // 左上のY座標（少し上に）
-        width: 600,     // 幅（さらに広く）
-        height: 110     // 高さ（さらに高く）
+        x: 1850,        // 左上のX座標
+        y: 25,          // 左上のY座標（10px下に移動して図番を中央に）
+        width: 600,     // 幅
+        height: 110     // 高さ
     },
 
     // QRコードを配置する□枠の領域（ユーザー調整値を反映）
@@ -742,30 +742,42 @@ function correctOCRMistakes(text) {
     let corrected = text;
 
     // 図番パターン（LW12345-A2-11形式）を想定した補正
-    // 1. 先頭2文字の補正（英字のみのはず）
-    corrected = corrected.replace(/^([YN])([I1V])/, (match, p1, p2) => {
-        // Y, N → L
-        const first = (p1 === 'Y' || p1 === 'N') ? 'L' : p1;
+
+    // 1. 先頭2文字の補正（LW, TS などの英字ペア）
+    corrected = corrected.replace(/^([YNI])([I1VW])/, (match, p1, p2) => {
+        // Y, N, I → L
+        const first = (p1 === 'Y' || p1 === 'N' || p1 === 'I') ? 'L' : p1;
         // I, 1, V → W
         const second = (p2 === 'I' || p2 === '1' || p2 === 'V') ? 'W' : p2;
         return first + second;
     });
 
-    // 2. 数字部分の補正
-    // I → 1（数字部分）
-    corrected = corrected.replace(/(\d+)[I](\d+)/g, '$11$2');
-
-    // 3. 末尾の補正（-XX-YY形式）
-    // I1 → 11, I → 1
-    corrected = corrected.replace(/-([A-Z]\d)-[I]1?$/, (match, p1) => {
-        return `-${p1}-11`;
+    // 2. 数字部分の補正（12345の部分）
+    // I → 1, O → 0, S → 5, B → 8
+    corrected = corrected.replace(/[I]/g, (match, offset) => {
+        // 英字の直後以外ならIを1に変換
+        if (offset > 0 && /[A-Z]/.test(corrected[offset - 1])) {
+            return match; // 英字の後ろのIは変換しない
+        }
+        return '1';
     });
-
-    // 4. その他の一般的な誤認識
-    // O → 0（数字の中）
     corrected = corrected.replace(/(\d+)O(\d+)/g, '$10$2');
-    // S → 5（数字の中）
     corrected = corrected.replace(/(\d+)S(\d+)/g, '$15$2');
+    corrected = corrected.replace(/(\d+)B(\d+)/g, '$18$2');
+
+    // 3. 中間部分の補正（-A2- の部分）
+    // 数字が英字に誤認識されるケース
+    corrected = corrected.replace(/-([A-Z])[O](-)/g, '-$10$2'); // AO → A0
+    corrected = corrected.replace(/-([A-Z])[I](-)/g, '-$11$2'); // AI → A1
+
+    // 4. 末尾の補正（-11形式）
+    // I1 → 11, I → 1, II → 11
+    corrected = corrected.replace(/-([A-Z0-9]{1,2})-I1$/, '-$1-11');
+    corrected = corrected.replace(/-([A-Z0-9]{1,2})-II$/, '-$1-11');
+    corrected = corrected.replace(/-([A-Z0-9]{1,2})-I$/, '-$1-1');
+
+    // 5. スペースを削除
+    corrected = corrected.replace(/\s+/g, '');
 
     return corrected;
 }
