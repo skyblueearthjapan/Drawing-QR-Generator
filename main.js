@@ -5,10 +5,10 @@ const config = {
     // OCR対象領域（図番が印刷されている右上の領域）
     // ユーザーの実際の図面サイズに合わせて調整
     ocrRegion: {
-        x: 1980,        // 左上のX座標（図番の位置 - 左に移動）
-        y: 25,          // 左上のY座標
-        width: 450,     // 幅（広めに設定）
-        height: 90      // 高さ（広めに設定）
+        x: 1920,        // 左上のX座標（さらに左に移動）
+        y: 20,          // 左上のY座標（少し上に）
+        width: 520,     // 幅（さらに広く）
+        height: 100     // 高さ（さらに高く）
     },
 
     // QRコードを配置する□枠の領域（ユーザー調整値を反映）
@@ -291,12 +291,13 @@ async function updatePreview() {
     const drawingNum = drawingNumberInput.value.trim();
     if (drawingNum) {
         try {
-            // QRコードを生成
+            // QRコードを生成（QRious使用）
             currentQRCanvas = document.createElement('canvas');
-            await QRCode.toCanvas(currentQRCanvas, drawingNum, {
-                width: qrPosition.size,
-                margin: 0,
-                errorCorrectionLevel: 'M'
+            new QRious({
+                element: currentQRCanvas,
+                value: drawingNum,
+                size: qrPosition.size,
+                level: 'M'
             });
 
             // 背景を白で塗りつぶし
@@ -504,13 +505,14 @@ async function approveCurrentFile() {
         ctx.drawImage(currentImage, 0, 0);
         addLog('info', `キャンバスサイズ: ${currentImage.width}×${currentImage.height}`);
 
-        // QRコードを生成（まだ生成されていない場合は新規生成）
+        // QRコードを生成（QRious使用）
         addLog('info', `QRコード生成中... (サイズ: ${qrPosition.size}px, 位置: ${qrPosition.x}, ${qrPosition.y})`);
         const qrCanvas = document.createElement('canvas');
-        await QRCode.toCanvas(qrCanvas, drawingNum, {
-            width: qrPosition.size,
-            margin: 0,
-            errorCorrectionLevel: 'M'
+        new QRious({
+            element: qrCanvas,
+            value: drawingNum,
+            size: qrPosition.size,
+            level: 'M'
         });
         addLog('info', 'QRコード生成完了');
 
