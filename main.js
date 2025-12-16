@@ -1191,7 +1191,7 @@ async function downloadZip() {
             addLog('info', `${pdfResults.length}ページをPDFにまとめています...`);
 
             const { jsPDF } = window.jspdf;
-            const PAGES_PER_PDF = 50; // 50ページごとに分割（メモリ制限対策）
+            const PAGES_PER_PDF = 10; // 10ページごとに分割（画質維持のため細分化）
             const totalPDFs = Math.ceil(pdfResults.length / PAGES_PER_PDF);
 
             if (totalPDFs > 1) {
@@ -1221,10 +1221,6 @@ async function downloadZip() {
                             imgData = await blobToDataURL(result.blob);
                         }
 
-                        // JPEG形式に圧縮（メモリ削減）
-                        addLog('info', `  ページ ${globalPageNum}: 画像を圧縮中...`);
-                        imgData = await compressImageToJPEG(imgData, 0.85);
-
                         if (i === 0) {
                             // 最初のページ：PDFを初期化
                             const orientation = result.width > result.height ? 'l' : 'p';
@@ -1239,8 +1235,8 @@ async function downloadZip() {
                             pdf.addPage([result.width, result.height]);
                         }
 
-                        // 画像をPDFに追加（JPEG形式）
-                        pdf.addImage(imgData, 'JPEG', 0, 0, result.width, result.height, undefined, 'FAST');
+                        // 画像をPDFに追加（PNG形式：画質100%維持）
+                        pdf.addImage(imgData, 'PNG', 0, 0, result.width, result.height);
 
                         addLog('info', `  ページ ${globalPageNum}/${pdfResults.length} を追加しました`);
                     }
