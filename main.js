@@ -20,15 +20,16 @@ const config = {
     },
 
     // 図番の正規表現パターン（様々な形式に対応）
-    // 例: LW12345-A2-11, TS1234-00-1, AB12345-BC-123 など
-    drawingNumberPattern: /[A-Z]{2}\d{4,5}-[A-Z0-9]{1,2}-\d{1,3}/,
+    // 例: LW25088-SD-01, TS12345-A1-002, 25088-A1-001, 25088-111-01, 25088-ABC-02, 25088-001, LW25088-001, 25088-A1-23a など
+    // パターン: [プレフィックス(省略可)][数字4〜6桁]-[ミドル2〜3文字(省略可)]-[サフィックス2〜3桁+オプションで文字]
+    drawingNumberPattern: /([A-Z]{2,3})?\d{4,6}(?:-[A-Z0-9]{2,3})?-\d{2,3}[a-zA-Z]?/,
 
     // Tesseract.js の言語設定
     ocrLanguage: 'eng',
 
     // OCR の認識精度向上のための設定
     ocrConfig: {
-        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-',
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-',
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK
     }
 };
