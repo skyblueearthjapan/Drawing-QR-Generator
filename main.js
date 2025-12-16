@@ -1144,6 +1144,36 @@ function blobToDataURL(blob) {
 }
 
 // ========================================
+// 画像をJPEG形式に圧縮（PDF生成時のメモリ削減）
+// ========================================
+async function compressImageToJPEG(imgData, quality = 0.8) {
+    return new Promise((resolve, reject) => {
+        try {
+            // data URLの場合は直接使用、blobの場合は変換
+            if (typeof imgData === 'string' && imgData.startsWith('data:')) {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    // JPEG形式で圧縮（品質80%）
+                    const compressedDataURL = canvas.toDataURL('image/jpeg', quality);
+                    resolve(compressedDataURL);
+                };
+                img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+                img.src = imgData;
+            } else {
+                resolve(imgData);
+            }
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+// ========================================
 // ZIPファイル/PDFのダウンロード
 // ========================================
 async function downloadZip() {
@@ -1156,56 +1186,98 @@ async function downloadZip() {
         const pdfResults = processedResults.filter(r => r.fileType === 'pdf');
         const pngResults = processedResults.filter(r => r.fileType === 'png');
 
-        // PDFページがある場合は、1つのPDFにまとめる
+        // PDFページがある場合は、PDFにまとめる（50ページごとに分割）
         if (pdfResults.length > 0) {
             addLog('info', `${pdfResults.length}ページをPDFにまとめています...`);
 
             const { jsPDF } = window.jspdf;
-            let pdf = null;
+            const PAGES_PER_PDF = 50; // 50ページごとに分割（メモリ制限対策）
+            const totalPDFs = Math.ceil(pdfResults.length / PAGES_PER_PDF);
 
-            for (let i = 0; i < pdfResults.length; i++) {
-                const result = pdfResults[i];
-
-                // メモリ最適化：imageがnullの場合はblobから復元
-                let imgData;
-                if (result.image && result.image.src) {
-                    imgData = result.image.src;
-                } else {
-                    addLog('info', `ページ ${i + 1}: メモリから解放された画像をblobから復元中...`);
-                    imgData = await blobToDataURL(result.blob);
-                }
-
-                if (i === 0) {
-                    // 最初のページ：PDFを初期化
-                    const orientation = result.width > result.height ? 'l' : 'p';
-                    pdf = new jsPDF({
-                        orientation: orientation,
-                        unit: 'px',
-                        format: [result.width, result.height]
-                    });
-                } else {
-                    // 2ページ目以降：新しいページを追加
-                    pdf.addPage([result.width, result.height]);
-                }
-
-                // 画像をPDFに追加
-                pdf.addImage(imgData, 'PNG', 0, 0, result.width, result.height);
-
-                addLog('info', `ページ ${i + 1}/${pdfResults.length} を追加しました`);
+            if (totalPDFs > 1) {
+                addLog('info', `大容量のため、${totalPDFs}個のPDFファイルに分割します`);
             }
 
-            // PDFを保存
-            const pdfBlob = pdf.output('blob');
-            const url = URL.createObjectURL(pdfBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `drawing_qr_result_${getTimestamp()}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            for (let pdfIndex = 0; pdfIndex < totalPDFs; pdfIndex++) {
+                const startPage = pdfIndex * PAGES_PER_PDF;
+                const endPage = Math.min(startPage + PAGES_PER_PDF, pdfResults.length);
+                const currentBatch = pdfResults.slice(startPage, endPage);
 
-            addLog('success', `PDFファイルのダウンロードを開始しました (${pdfResults.length}ページ)`);
+                addLog('info', `PDF ${pdfIndex + 1}/${totalPDFs}: ページ ${startPage + 1}〜${endPage} を生成中...`);
+
+                try {
+                    let pdf = null;
+
+                    for (let i = 0; i < currentBatch.length; i++) {
+                        const result = currentBatch[i];
+                        const globalPageNum = startPage + i + 1;
+
+                        // メモリ最適化：imageがnullの場合はblobから復元
+                        let imgData;
+                        if (result.image && result.image.src) {
+                            imgData = result.image.src;
+                        } else {
+                            addLog('info', `  ページ ${globalPageNum}: blobから復元中...`);
+                            imgData = await blobToDataURL(result.blob);
+                        }
+
+                        // JPEG形式に圧縮（メモリ削減）
+                        addLog('info', `  ページ ${globalPageNum}: 画像を圧縮中...`);
+                        imgData = await compressImageToJPEG(imgData, 0.85);
+
+                        if (i === 0) {
+                            // 最初のページ：PDFを初期化
+                            const orientation = result.width > result.height ? 'l' : 'p';
+                            pdf = new jsPDF({
+                                orientation: orientation,
+                                unit: 'px',
+                                format: [result.width, result.height],
+                                compress: true // PDF圧縮を有効化
+                            });
+                        } else {
+                            // 2ページ目以降：新しいページを追加
+                            pdf.addPage([result.width, result.height]);
+                        }
+
+                        // 画像をPDFに追加（JPEG形式）
+                        pdf.addImage(imgData, 'JPEG', 0, 0, result.width, result.height, undefined, 'FAST');
+
+                        addLog('info', `  ページ ${globalPageNum}/${pdfResults.length} を追加しました`);
+                    }
+
+                    // PDFを保存
+                    addLog('info', `PDF ${pdfIndex + 1}/${totalPDFs}: ファイルを生成中...`);
+                    const pdfBlob = pdf.output('blob');
+                    const url = URL.createObjectURL(pdfBlob);
+                    const a = document.createElement('a');
+                    a.href = url;
+
+                    // ファイル名（複数PDFの場合は連番を付ける）
+                    const fileName = totalPDFs > 1
+                        ? `drawing_qr_result_${getTimestamp()}_part${pdfIndex + 1}of${totalPDFs}.pdf`
+                        : `drawing_qr_result_${getTimestamp()}.pdf`;
+
+                    a.download = fileName;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+
+                    addLog('success', `✅ PDF ${pdfIndex + 1}/${totalPDFs} のダウンロードを開始しました (${currentBatch.length}ページ)`);
+
+                    // メモリ解放のため、次のPDFまで少し待つ
+                    if (pdfIndex < totalPDFs - 1) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+
+                } catch (error) {
+                    console.error(`PDF ${pdfIndex + 1} の生成エラー:`, error);
+                    addLog('error', `❌ PDF ${pdfIndex + 1}/${totalPDFs} の生成に失敗しました: ${error.message}`);
+                    throw error; // エラーを再スローして処理を中断
+                }
+            }
+
+            addLog('success', `すべてのPDFファイルのダウンロードが完了しました (全${pdfResults.length}ページ)`);
         }
 
         // PNGファイルがある場合は、ZIPにまとめる
@@ -1238,8 +1310,28 @@ async function downloadZip() {
 
     } catch (error) {
         console.error('ダウンロードエラー:', error);
-        addLog('error', `ファイルの生成に失敗しました: ${error.message}`);
-        alert('ファイルの生成に失敗しました');
+        addLog('error', `❌ ファイルの生成に失敗しました: ${error.message}`);
+
+        // ユーザーフレンドリーなエラーメッセージ
+        let userMessage = 'ファイルの生成に失敗しました。\n\n';
+
+        if (error.message.includes('Invalid string length') || error.message.includes('Maximum call stack')) {
+            userMessage += '原因: メモリ不足（処理ページ数が多すぎる可能性があります）\n\n';
+            userMessage += '対処法:\n';
+            userMessage += '1. ページ数を減らして再試行してください\n';
+            userMessage += '2. ブラウザを再起動してください\n';
+            userMessage += '3. 別のブラウザ（Chrome推奨）で試してください';
+        } else if (error.message.includes('compress') || error.message.includes('JPEG')) {
+            userMessage += '原因: 画像の圧縮に失敗しました\n\n';
+            userMessage += '対処法:\n';
+            userMessage += '1. ページを再読み込みして再試行してください\n';
+            userMessage += '2. 画像が破損していないか確認してください';
+        } else {
+            userMessage += `エラー詳細: ${error.message}\n\n`;
+            userMessage += 'ページを再読み込みして、もう一度お試しください。';
+        }
+
+        alert(userMessage);
     } finally {
         downloadBtn.disabled = false;
         downloadBtn.textContent = '💾 結果をダウンロード';
