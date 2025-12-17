@@ -1186,16 +1186,17 @@ async function downloadZip() {
         const pdfResults = processedResults.filter(r => r.fileType === 'pdf');
         const pngResults = processedResults.filter(r => r.fileType === 'png');
 
-        // PDFページがある場合は、PDFにまとめる（50ページごとに分割）
+        // PDFページがある場合は、PDFにまとめる（10ページごとに分割してZIPに格納）
         if (pdfResults.length > 0) {
             addLog('info', `${pdfResults.length}ページをPDFにまとめています...`);
 
             const { jsPDF } = window.jspdf;
             const PAGES_PER_PDF = 10; // 10ページごとに分割（画質維持のため細分化）
             const totalPDFs = Math.ceil(pdfResults.length / PAGES_PER_PDF);
+            const pdfBlobs = []; // 生成したPDFファイルを一時保存
 
             if (totalPDFs > 1) {
-                addLog('info', `大容量のため、${totalPDFs}個のPDFファイルに分割します`);
+                addLog('info', `大容量のため、${totalPDFs}個のPDFファイルに分割してZIPにまとめます`);
             }
 
             for (let pdfIndex = 0; pdfIndex < totalPDFs; pdfIndex++) {
@@ -1241,29 +1242,26 @@ async function downloadZip() {
                         addLog('info', `  ページ ${globalPageNum}/${pdfResults.length} を追加しました`);
                     }
 
-                    // PDFを保存
+                    // PDFをBlobとして保存（ダウンロードはしない）
                     addLog('info', `PDF ${pdfIndex + 1}/${totalPDFs}: ファイルを生成中...`);
                     const pdfBlob = pdf.output('blob');
-                    const url = URL.createObjectURL(pdfBlob);
-                    const a = document.createElement('a');
-                    a.href = url;
 
                     // ファイル名（複数PDFの場合は連番を付ける）
                     const fileName = totalPDFs > 1
-                        ? `drawing_qr_result_${getTimestamp()}_part${pdfIndex + 1}of${totalPDFs}.pdf`
-                        : `drawing_qr_result_${getTimestamp()}.pdf`;
+                        ? `part${pdfIndex + 1}of${totalPDFs}.pdf`
+                        : `drawing_qr_result.pdf`;
 
-                    a.download = fileName;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
+                    // Blob配列に保存
+                    pdfBlobs.push({
+                        fileName: fileName,
+                        blob: pdfBlob
+                    });
 
-                    addLog('success', `✅ PDF ${pdfIndex + 1}/${totalPDFs} のダウンロードを開始しました (${currentBatch.length}ページ)`);
+                    addLog('success', `✅ PDF ${pdfIndex + 1}/${totalPDFs} の生成が完了しました (${currentBatch.length}ページ)`);
 
                     // メモリ解放のため、次のPDFまで少し待つ
                     if (pdfIndex < totalPDFs - 1) {
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await new Promise(resolve => setTimeout(resolve, 500));
                     }
 
                 } catch (error) {
@@ -1273,7 +1271,46 @@ async function downloadZip() {
                 }
             }
 
-            addLog('success', `すべてのPDFファイルのダウンロードが完了しました (全${pdfResults.length}ページ)`);
+            // すべてのPDFファイルをZIPにまとめる
+            if (totalPDFs > 1) {
+                addLog('info', `${totalPDFs}個のPDFファイルをZIPにまとめています...`);
+
+                const zip = new JSZip();
+
+                for (const pdfData of pdfBlobs) {
+                    zip.file(pdfData.fileName, pdfData.blob);
+                }
+
+                const zipBlob = await zip.generateAsync({
+                    type: 'blob',
+                    compression: 'DEFLATE',
+                    compressionOptions: { level: 6 }
+                });
+
+                const url = URL.createObjectURL(zipBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `drawing_qr_result_${getTimestamp()}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                addLog('success', `✅ ZIPファイルのダウンロードを開始しました (${totalPDFs}個のPDF、全${pdfResults.length}ページ)`);
+            } else {
+                // 1つのPDFファイルのみの場合は、ZIPにせず直接ダウンロード
+                const pdfData = pdfBlobs[0];
+                const url = URL.createObjectURL(pdfData.blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `drawing_qr_result_${getTimestamp()}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                addLog('success', `✅ PDFファイルのダウンロードを開始しました (全${pdfResults.length}ページ)`);
+            }
         }
 
         // PNGファイルがある場合は、ZIPにまとめる
